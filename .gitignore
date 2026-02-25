@@ -1,0 +1,26 @@
+# 确保你在项目根目录下
+cd Qwen_CoALA_Agent
+
+# 写入忽略规则
+cat > .gitignore <<EOF
+# --- 系统文件 ---
+.DS_Store
+*.log
+__pycache__/
+*.pyc
+
+# --- AI 模型与数据 (千万不要上传) ---
+models/*.gguf
+models/*.bin
+data/chroma_db/
+data/user_profile/
+
+# --- 敏感配置 ---
+.env
+config/secrets.yaml
+
+# --- Python 环境 ---
+venv/
+.venv/
+env/
+EOF
