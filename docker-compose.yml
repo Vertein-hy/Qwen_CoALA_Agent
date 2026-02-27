@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  qwen-agent:
+    build: .
+    container_name: evo_agent
+    # 关键：挂载当前目录到容器内的 /app
+    volumes:
+      - .:/app
+      # 也可以单独把模型目录挂载，确保模型文件存在
+      - ./models:/app/models
+    
+    # 关键：开启交互模式，否则你没法在终端里输入 input()
+    stdin_open: true 
+    tty: true
+    
+    # 如果你在国内下载模型慢，可以开启这个镜像加速
+    environment:
+      - HF_ENDPOINT=https://hf-mirror.com
+      
+    # 限制一下 CPU 资源，防止把你 Windows 卡死
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: '4'

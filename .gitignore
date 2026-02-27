@@ -1,26 +1,48 @@
-# 确保你在项目根目录下
-cd Qwen_CoALA_Agent
-
-# 写入忽略规则
-cat > .gitignore <<EOF
-# --- 系统文件 ---
-.DS_Store
-*.log
+# ===========================
+# 1. 核心系统与环境
+# ===========================
 __pycache__/
-*.pyc
-
-# --- AI 模型与数据 (千万不要上传) ---
-models/*.gguf
-models/*.bin
-data/chroma_db/
-data/user_profile/
-
-# --- 敏感配置 ---
-.env
-config/secrets.yaml
-
-# --- Python 环境 ---
+*.py[cod]
+*$py.class
 venv/
 .venv/
-env/
-EOF
+.env
+.DS_Store
+.idea/
+.vscode/
+
+# ===========================
+# 2. 模型与 Ollama 数据 (关键修改区)
+# ===========================
+# 忽略 GGUF (你之前手动下的)
+models/*.gguf
+models/*.bin
+
+# 忽略 Ollama 的内部数据库结构 (你改路径后生成的)
+# blobs 里面全是几个G的模型切片，千万别传！
+models/blobs/
+models/manifests/
+models/registry.ollama.ai/
+
+# 忽略下载临时文件
+*.part
+*.download
+
+# ===========================
+# 3. 数据与记忆 (运行时生成)
+# ===========================
+data/chroma_db/
+data/logs/
+*.log
+*.txt
+*.json
+*.csv
+
+# ===========================
+# 4. 白名单 (保留代码资产)
+# ===========================
+!Modelfile
+!.gitkeep
+!skills/internalized/*.py
+!requirements.txt
+!README.md
