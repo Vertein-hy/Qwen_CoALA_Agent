@@ -1,20 +1,33 @@
-class WorkingMemory:
-    def __init__(self):
-        # 存储对话历史，符合 OpenAI/Qwen 的 Chat 格式
-        # e.g. [{"role": "system", "content": "..."}, {"role": "user", "content": "..."}]
-        self.history = []
-        self.current_mood = "Neutral"
-    
-    def add_message(self, role, content):
-        """添加一条新的对话记录"""
-        self.history.append({"role": role, "content": content})
-        
-    def get_context(self):
-        """获取当前完整的上下文"""
-        return self.history
+﻿"""Short-term dialogue memory."""
 
-    def update_mood(self, new_mood):
-        self.current_mood = new_mood
-        
-    def clear(self):
-        self.history = []
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+
+@dataclass
+class WorkingMemory:
+    """Conversation history buffer used as model context."""
+
+    max_messages: int = 30
+    history: list[dict[str, str]] = field(default_factory=list)
+
+    def add_message(self, role: str, content: str) -> None:
+        self.history.append({"role": role, "content": content})
+        if len(self.history) > self.max_messages:
+            # Keep system prompt and latest turns.
+            system = [m for m in self.history[:1] if m.get("role") == "system"]
+            tail = self.history[-(self.max_messages - len(system)) :]
+            self.history = system + tail
+
+    def get_context(self) -> list[dict[str, str]]:
+        return list(self.history)
+
+    def replace_system_prompt(self, content: str) -> None:
+        if self.history and self.history[0].get("role") == "system":
+            self.history[0] = {"role": "system", "content": content}
+            return
+        self.history.insert(0, {"role": "system", "content": content})
+
+    def clear(self) -> None:
+        self.history.clear()

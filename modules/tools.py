@@ -1,132 +1,176 @@
-import sys
-import io
+﻿"""Tool execution module.
+
+Design goals:
+- High cohesion: tool management logic stays here.
+- Low coupling: agent only depends on ToolExecutor interface.
+"""
+
+from __future__ import annotations
+
 import contextlib
-import os
 import importlib.util
+import inspect
+import io
+import os
+import sys
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Callable
+
+
+ToolFunc = Callable[[str], str]
+
+
+@dataclass
+class ToolRegistry:
+    """Registry that stores tool handlers by name."""
+
+    _tools: dict[str, ToolFunc] = field(default_factory=dict)
+
+    def register(self, name: str, func: ToolFunc) -> None:
+        self._tools[name] = func
+
+    def has(self, name: str) -> bool:
+        return name in self._tools
+
+    def get(self, name: str) -> ToolFunc:
+        return self._tools[name]
+
+    def items(self):
+        return self._tools.items()
+
 
 class ToolBox:
-    def __init__(self):
-        self.tools = {
-            "python_repl": self.python_repl,
-            "write_file": self.write_file,
-            "read_file": self.read_file
-        }
-        self.python_state = {} 
+    """Built-in tools + dynamically loaded internalized skills."""
+
+    def __init__(self, data_dir: str = "data", skills_file: str = "skills/internalized/custom_skills.py"):
+        self.data_dir = Path(data_dir)
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+
+        self.skills_file = Path(skills_file)
+        self.python_state: dict = {}
+        self.registry = ToolRegistry()
+
+        self._register_builtin_tools()
         self.load_internalized_skills()
-    
-    def load_internalized_skills(self):
-        skill_path = os.path.join("skills", "internalized", "custom_skills.py")
-        if not os.path.exists(skill_path):
+
+    def _register_builtin_tools(self) -> None:
+        self.registry.register("python_repl", self.python_repl)
+        self.registry.register("write_file", self.write_file)
+        self.registry.register("read_file", self.read_file)
+
+    def load_internalized_skills(self) -> None:
+        """Load callables from skills/internalized/custom_skills.py.
+
+        Only user-defined public callables are imported as tools.
+        """
+
+        if not self.skills_file.exists():
             return
 
+        module_name = "custom_skills_runtime"
+        if module_name in sys.modules:
+            del sys.modules[module_name]
+
+        spec = importlib.util.spec_from_file_location(module_name, str(self.skills_file))
+        if spec is None or spec.loader is None:
+            return
+
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        for attr_name in dir(module):
+            attr = getattr(module, attr_name)
+            if not callable(attr) or attr_name.startswith("_"):
+                continue
+
+            # Wrap arbitrary function signatures into string-input tools.
+            self.registry.register(attr_name, self._wrap_skill(attr_name, attr))
+
+    def _wrap_skill(self, name: str, func: Callable) -> ToolFunc:
+        def _runner(raw_input: str) -> str:
+            expression = raw_input.strip()
+            if not expression:
+                result = func()
+                return "" if result is None else str(result)
+
+            # Execute skill in python sandbox state to support complex args.
+            local_scope = {name: func}
+            script = f"_tool_out = {name}({expression})"
+            try:
+                exec(script, self.python_state, local_scope)
+                out = local_scope.get("_tool_out")
+                return "" if out is None else str(out)
+            except Exception as exc:  # noqa: BLE001
+                return f"Skill error: {exc}"
+
+        return _runner
+
+    def get_tool_desc(self) -> str:
+        lines = [
+            "[Built-in Tools]",
+            "1. python_repl: execute Python code safely in session state.",
+            "2. write_file: write a file, format is 'filename|content'.",
+            "3. read_file: read a file by name from data directory.",
+        ]
+
+        custom_lines = []
+        for name, func in self.registry.items():
+            if name in {"python_repl", "write_file", "read_file"}:
+                continue
+            try:
+                sig = str(inspect.signature(func))
+            except Exception:  # noqa: BLE001
+                sig = "(input: str)"
+            custom_lines.append(f"- {name}{sig}")
+
+        if custom_lines:
+            lines.append("\n[Internalized Skills]")
+            lines.extend(custom_lines)
+
+        return "\n".join(lines)
+
+    def execute(self, tool_name: str, tool_input: str) -> str:
+        if not self.registry.has(tool_name):
+            return f"Tool not found: '{tool_name}'"
+
         try:
-            if "custom_skills" in sys.modules:
-                del sys.modules["custom_skills"]
-            
-            spec = importlib.util.spec_from_file_location("custom_skills", skill_path)
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-            
-            for attr_name in dir(module):
-                attr = getattr(module, attr_name)
-                if callable(attr) and not attr_name.startswith("_"):
-                    self.tools[attr_name] = attr
-        except Exception as e:
-            print(f"⚠️ 技能加载失败: {e}")
+            return self.registry.get(tool_name)(tool_input)
+        except Exception as exc:  # noqa: BLE001
+            return f"Tool execution error: {exc}"
 
-    def get_tool_desc(self):
-        desc = "【基础工具】\n"
-        desc += "1. python_repl: 执行 Python 代码。\n"
-        desc += "2. write_file: 写入文件 (文件名|内容)。\n"
-        desc += "   * 如果内容是动态生成的(如函数结果)，请直接传入Python代码，系统会自动处理。\n"
-        desc += "3. read_file: 读取文件 (文件名)。\n"
-        
-        skill_desc = ""
-        for name, func in self.tools.items():
-            if name not in ["python_repl", "write_file", "read_file"]:
-                import inspect
-                try:
-                    sig = str(inspect.signature(func))
-                except:
-                    sig = "()"
-                doc = func.__doc__.strip() if func.__doc__ else "无说明"
-                skill_desc += f"        *. {name}{sig}: [已预加载] {doc}\n"
-        
-        if skill_desc:
-            desc += "\n【🌟 专属技能 (可以直接 Action 调用)】\n" + skill_desc
-            
-        return desc
-
-    def execute(self, tool_name, tool_input):
-        if tool_name not in self.tools:
-            return f"错误: 找不到工具 '{tool_name}'"
-        
-        try:
-            print(f"🔨 执行工具: {tool_name} ...")
-            
-            # 智能转发内化技能
-            if tool_name not in ["python_repl", "write_file", "read_file"]:
-                if tool_input:
-                    code_to_run = f"print({tool_name}({tool_input}))"
-                else:
-                    code_to_run = f"print({tool_name}())"
-                print(f"🔄 转发至引擎: {code_to_run}")
-                return self.python_repl(code_to_run)
-            
-            return self.tools[tool_name](tool_input)
-        except Exception as e:
-            return f"执行出错: {e}"
-
-    def python_repl(self, code):
-        code = code.strip()
-        if code.startswith("```"):
-            code = code.split("\n", 1)[-1]
-        if code.endswith("```"):
-            code = code.rsplit("\n", 1)[0]
-        code = code.strip()
-        
+    def python_repl(self, code: str) -> str:
+        cleaned = self._strip_code_fence(code)
         output_buffer = io.StringIO()
         try:
             with contextlib.redirect_stdout(output_buffer):
-                # === 关键修改 ===
-                # 使用 self.python_state 作为全局作用域
-                # 这样 Step 1 定义的变量，Step 2 依然可以用
-                exec(code, self.python_state)
-                
-            res = output_buffer.getvalue().strip()
-            return res if res else "执行成功，无输出 (变量已保存到内存)。"
-        except Exception as e:
-            return f"Python Error: {e}"
+                exec(cleaned, self.python_state)
+            output = output_buffer.getvalue().strip()
+            return output if output else "Execution success (no stdout)."
+        except Exception as exc:  # noqa: BLE001
+            return f"Python Error: {exc}"
 
-    def write_file(self, args):
-        # === 核心修复逻辑 ===
-        # 尝试按照 "文件名|内容" 格式解析
-        try:
-            if "|" in args:
-                name, content = args.split("|", 1)
-                # 进一步检查：如果 content 看起来像 Python 代码，说明模型可能用错了
-                # 但如果用户就是想写代码到文件里呢？这是一个权衡。
-                # 这里的策略是：只有当 split 失败时，才尝试当做代码运行。
-                
-                path = os.path.join("data", name.strip())
-                with open(path, "w", encoding="utf-8") as f:
-                    f.write(content)
-                return f"文件 {path} 写入成功"
-            else:
-                raise ValueError("没有找到分隔符 |")
-                
-        except ValueError:
-            # 如果解析失败，检查是否是 Python 代码
-            # 模型可能会把代码直接传进来，比如 with open(...)
-            if "open(" in args or "write(" in args or "def " in args:
-                print("🔄 检测到 Python 代码格式，转发至 python_repl 执行...")
-                return self.python_repl(args)
-            
-            return "错误: 输入格式应为 '文件名|内容'，或者是一段有效的 Python 文件操作代码。"
+    def write_file(self, args: str) -> str:
+        if "|" not in args:
+            return "Invalid format. Use 'filename|content'."
 
-    def read_file(self, name):
-        path = os.path.join("data", name.strip())
-        if os.path.exists(path):
-            with open(path, "r", encoding="utf-8") as f:
-                return f.read()
-        return "文件不存在"
+        filename, content = args.split("|", 1)
+        target = self.data_dir / filename.strip()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+        return f"File written: {target}"
+
+    def read_file(self, name: str) -> str:
+        target = self.data_dir / name.strip()
+        if not target.exists():
+            return "File does not exist."
+        return target.read_text(encoding="utf-8")
+
+    @staticmethod
+    def _strip_code_fence(code: str) -> str:
+        text = code.strip()
+        if text.startswith("```"):
+            text = text.split("\n", 1)[-1]
+        if text.endswith("```"):
+            text = text.rsplit("\n", 1)[0]
+        return text.strip()

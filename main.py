@@ -1,59 +1,51 @@
-import sys
+﻿"""CLI entrypoint for CoALA Agent."""
+
+from __future__ import annotations
+
+import os
+
 import colorama
 from colorama import Fore, Style
+
 from core.agent import CognitiveAgent
-import os
-# --- 新增这两行 ---
-# 强制忽略系统代理，直接连接本地
-os.environ["NO_PROXY"] = "localhost,127.0.0.1"
-os.environ["no_proxy"] = "localhost,127.0.0.1"
-# -----------------
 
-# 初始化颜色
-colorama.init(autoreset=True)
 
-def main():
-    print(Fore.CYAN + "=== Qwen CoALA Agent (Ollama Mode) ===")
-    print(Fore.YELLOW + "初始化中...")
+def main() -> None:
+    # Always bypass proxy for local inference endpoint.
+    os.environ["NO_PROXY"] = "localhost,127.0.0.1"
+    os.environ["no_proxy"] = "localhost,127.0.0.1"
 
-    # --- 移除旧的文件检查逻辑 ---
-    # Ollama 不需要检查 .gguf 文件路径，因为它由服务管理
-    
+    colorama.init(autoreset=True)
+
+    print(Fore.CYAN + "=== Qwen CoALA Agent ===")
+    print(Fore.YELLOW + "正在初始化...")
+
     try:
-        # 启动 Agent
-        # agent 内部会去连接 Ollama，如果连不上会报错并退出
         agent = CognitiveAgent()
-        
-    except Exception as e:
-        print(Fore.RED + f"\n[致命错误] 启动失败: {e}")
-        print(Fore.YELLOW + "提示: 请确保已安装并运行 Ollama (在终端输入 'ollama list' 测试)")
+    except Exception as exc:  # noqa: BLE001
+        print(Fore.RED + f"[致命错误] 启动失败: {exc}")
         return
 
-    print(Fore.GREEN + "\n✅ Neko 已就绪! (输入 'exit' 退出)\n")
+    print(Fore.GREEN + "已就绪。输入 'exit' 或 'quit' 退出。\n")
 
-    # 对话循环
     while True:
         try:
-            # 获取用户输入
             user_input = input(Fore.BLUE + "User: " + Style.RESET_ALL)
-            
-            # 退出指令
-            if user_input.lower() in ["exit", "quit"]:
-                print("Bye!")
+            if user_input.strip().lower() in {"exit", "quit"}:
+                print("再见！")
                 break
-            
-            # 空输入处理
             if not user_input.strip():
                 continue
-                
-            # 运行 Agent 循环
-            agent.run(user_input)
-            
+
+            answer = agent.run(user_input)
+            print(Fore.MAGENTA + f"Agent: {answer}")
+
         except KeyboardInterrupt:
-            print("\nExiting...")
+            print("\n正在退出...")
             break
-        except Exception as e:
-            print(Fore.RED + f"运行出错: {e}")
+        except Exception as exc:  # noqa: BLE001
+            print(Fore.RED + f"运行时错误: {exc}")
+
 
 if __name__ == "__main__":
     main()
