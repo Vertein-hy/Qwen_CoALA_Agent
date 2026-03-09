@@ -1,4 +1,5 @@
 chromadb
+pydantic>=2,<3
 colorama
 pyyaml
 requests

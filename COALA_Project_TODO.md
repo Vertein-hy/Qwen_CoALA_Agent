@@ -9,19 +9,19 @@
   - 文件：`core/agent.py`, `memory/vector_store.py`
   - 验收：每次 `search/add` 都能在日志里看到同一个 `trace_id`。
 
-- [ ] `vector_store` 增加结构化返回
+- [x] `vector_store` 增加结构化返回
   - 文件：`memory/vector_store.py`
   - 验收：`search()` 返回 `documents/memory_ids/distances/query_id`。
 
-- [ ] 增加 memory 事件日志落盘
+- [x] 增加 memory 事件日志落盘
   - 文件：`memory/vector_store.py`, `config/settings.py`
   - 验收：生成 `data/logs/memory_events/YYYY-MM-DD.jsonl`，包含 `memory_write/memory_search` 事件。
 
-- [ ] 规则打分器 v0
+- [x] 规则打分器 v0
   - 文件：新建 `core/scorer.py`（或 `modules/scorer.py`）
   - 验收：能输出 `R_task/R_format/R_cost/R_memory/R_safety/R_total`。
 
-- [ ] 固定评测集冻结
+- [x] 固定评测集冻结
   - 文件：`data/eval/*.jsonl`
   - 验收：至少 200 条，覆盖 T1~T4，每桶不低于 30 条。
 

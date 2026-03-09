@@ -158,19 +158,56 @@ class OpenAICompatChatModel:
         messages: list[Message],
         options: GenerationOptions,
     ) -> str:
-        url = self.api_base.rstrip("/") + "/chat/completions"
-        payload = self._build_payload(messages=messages, options=options)
+        chat_url = self.api_base.rstrip("/") + "/chat/completions"
+        chat_payload = self._build_payload(messages=messages, options=options)
         response = requests.post(
-            url,
+            chat_url,
             headers=self._headers(),
-            json=payload,
+            json=chat_payload,
             timeout=self.timeout_s,
         )
-        response.raise_for_status()
-        data = response.json()
+        if response.ok:
+            data = response.json()
+            try:
+                return data["choices"][0]["message"]["content"]
+            except (KeyError, IndexError, TypeError) as exc:
+                raise RuntimeError(
+                    f"Unexpected response format from {chat_url}: {data}"
+                ) from exc
+
+        # Some local OpenAI-compatible servers only expose /v1/completions.
+        completion_url = self.api_base.rstrip("/") + "/completions"
+        completion_payload = {
+            "model": self.model,
+            "prompt": self._messages_to_prompt(messages),
+            "temperature": options.temperature,
+        }
+        if options.max_tokens is not None:
+            completion_payload["max_tokens"] = options.max_tokens
+        if options.top_p is not None:
+            completion_payload["top_p"] = options.top_p
+
+        fallback = requests.post(
+            completion_url,
+            headers=self._headers(),
+            json=completion_payload,
+            timeout=self.timeout_s,
+        )
+        fallback.raise_for_status()
+        data = fallback.json()
         try:
-            return data["choices"][0]["message"]["content"]
+            return data["choices"][0]["text"]
         except (KeyError, IndexError, TypeError) as exc:
             raise RuntimeError(
-                f"Unexpected response format from {url}: {data}"
+                f"Unexpected response format from {completion_url}: {data}"
             ) from exc
+
+    @staticmethod
+    def _messages_to_prompt(messages: list[Message]) -> str:
+        lines: list[str] = []
+        for msg in messages:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            lines.append(f"{role}: {content}")
+        lines.append("assistant:")
+        return "\n".join(lines)

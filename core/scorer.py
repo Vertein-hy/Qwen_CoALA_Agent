@@ -20,21 +20,28 @@ class ScoreWeights:
 
 @dataclass(frozen=True)
 class ScoreBreakdown:
-    total: float
-    task: float
-    format: float
-    cost: float
-    memory: float
-    safety: float
+    R_total: float
+    R_task: float
+    R_format: float
+    R_cost: float
+    R_memory: float
+    R_safety: float
 
     def as_dict(self) -> dict:
+        # Keep both canonical R_* keys and legacy keys for compatibility.
         return {
-            "total": self.total,
-            "task": self.task,
-            "format": self.format,
-            "cost": self.cost,
-            "memory": self.memory,
-            "safety": self.safety,
+            "R_total": self.R_total,
+            "R_task": self.R_task,
+            "R_format": self.R_format,
+            "R_cost": self.R_cost,
+            "R_memory": self.R_memory,
+            "R_safety": self.R_safety,
+            "total": self.R_total,
+            "task": self.R_task,
+            "format": self.R_format,
+            "cost": self.R_cost,
+            "memory": self.R_memory,
+            "safety": self.R_safety,
         }
 
 
@@ -74,12 +81,12 @@ class RuleBasedScorer:
         total = max(0.0, min(1.0, total))
 
         return ScoreBreakdown(
-            total=total,
-            task=task,
-            format=format_score,
-            cost=cost_score,
-            memory=memory_score,
-            safety=safety_score,
+            R_total=total,
+            R_task=task,
+            R_format=format_score,
+            R_cost=cost_score,
+            R_memory=memory_score,
+            R_safety=safety_score,
         )
 
     @staticmethod

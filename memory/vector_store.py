@@ -154,9 +154,10 @@ class MemorySystem:
     def _log_event(self, payload: dict) -> None:
         if not self.config.enable_event_log:
             return
+        self.config.event_log_dir.mkdir(parents=True, exist_ok=True)
         day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         event_path = self.config.event_log_dir / f"{day}.jsonl"
-        with event_path.open("a", encoding="utf-8") as f:
+        with event_path.open("a", encoding="utf-8", newline="\n") as f:
             f.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
     @staticmethod
