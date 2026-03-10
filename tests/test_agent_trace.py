@@ -117,6 +117,26 @@ class ToolLoopLLM:
         return ChatResult(content=self.response, model_name="fake-model", route="fake-route")
 
 
+@dataclass
+class CodeAnswerLLM:
+    response: str = (
+        "```python\n"
+        "def auto_sum_n(n):\n"
+        "    \"\"\"Return sum from 1 to n.\"\"\"\n"
+        "    return sum(range(1, n + 1))\n"
+        "```\n"
+        "Final Answer: 已定义函数。"
+    )
+
+    def chat_with_meta(
+        self,
+        messages: list[dict[str, str]],
+        temperature: float | None = None,
+        route_hint: str = "auto",
+    ) -> ChatResult:
+        return ChatResult(content=self.response, model_name="fake-model", route="fake-route")
+
+
 def _build_agent(
     llm: object,
     memory: FakeMemory,
@@ -200,3 +220,20 @@ def calc_sum_n(n):
 
     assert "[候选内部技能]" in system_prompt
     assert "calc_sum_n" in system_prompt
+
+
+def test_agent_internalizes_skill_from_plain_code_block_response(tmp_path) -> None:
+    skill_manager = SkillManager(
+        skill_file=tmp_path / "custom_skills.py",
+        index_file=tmp_path / "index.json",
+    )
+    memory = FakeMemory()
+    agent = _build_agent(
+        llm=CodeAnswerLLM(),
+        memory=memory,
+        skill_manager=skill_manager,
+    )
+
+    _ = agent.run("请帮我定义一个求和函数")
+
+    assert skill_manager.has_skill("auto_sum_n")

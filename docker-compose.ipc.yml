@@ -43,4 +43,4 @@ services:
       no_proxy: localhost,127.0.0.1
     network_mode: host
     restart: unless-stopped
-    command: python scripts/web_console.py
+    command: python -m apps.web_console.server
