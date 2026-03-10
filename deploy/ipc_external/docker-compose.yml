@@ -1,0 +1,22 @@
+services:
+  coala-dev:
+    build:
+      context: ../..
+      dockerfile: deploy/ipc_external/Dockerfile.dev
+    image: coala-agent-dev:local
+    container_name: coala-agent-dev
+    working_dir: /workspace
+    env_file:
+      - ./coala.env
+    volumes:
+      - ../..:/workspace
+      - coala_chroma:/workspace/data/chroma_db
+      - coala_logs:/workspace/data/logs
+    command: ["sleep", "infinity"]
+    restart: unless-stopped
+    tty: true
+    stdin_open: true
+
+volumes:
+  coala_chroma:
+  coala_logs:

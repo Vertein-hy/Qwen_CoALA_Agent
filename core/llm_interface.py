@@ -150,6 +150,11 @@ class LLMInterface:
                 supports_seed=True,
                 supports_json_schema=True,
                 supports_tool_calls=True,
+                async_enabled=local_cfg.async_enabled,
+                async_submit_path=local_cfg.async_submit_path,
+                async_status_path_template=local_cfg.async_status_path_template,
+                async_poll_interval_s=local_cfg.async_poll_interval_s,
+                async_timeout_s=local_cfg.async_timeout_s,
             )
         if provider == "ollama":
             return LocalOllamaChatModel(

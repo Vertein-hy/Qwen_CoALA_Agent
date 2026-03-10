@@ -1,0 +1,14 @@
+FROM python:3.11-bookworm
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /workspace
+
+# Install project dependencies first for better layer reuse.
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --upgrade pip && pip install -r /tmp/requirements.txt pytest
+
+# Source code will be bind-mounted by docker-compose in dev mode.
+CMD ["sleep", "infinity"]

@@ -1,0 +1,21 @@
+services:
+  coala:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: coala-agent:dev
+    container_name: coala-agent-dev
+    working_dir: /app
+    volumes:
+      - ./:/app
+    env_file:
+      - .env
+    environment:
+      COALA_LOCAL_API_BASE: ${COALA_LOCAL_API_BASE_DOCKER:-http://host.docker.internal:16006/v1}
+      NO_PROXY: localhost,127.0.0.1,host.docker.internal
+      no_proxy: localhost,127.0.0.1,host.docker.internal
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    stdin_open: true
+    tty: true
+    command: python main.py

@@ -1,0 +1,25 @@
+services:
+  coala:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: coala-agent:ipc
+    container_name: coala-agent-ipc
+    working_dir: /app
+    volumes:
+      - ./:/app
+    env_file:
+      - .env
+    environment:
+      COALA_LOCAL_PROVIDER: ${COALA_LOCAL_PROVIDER:-openai_compat}
+      COALA_LOCAL_MODEL: ${COALA_LOCAL_MODEL:-Qwen3.5-9B-Q4_K_M.gguf}
+      COALA_LOCAL_API_BASE: ${COALA_LOCAL_API_BASE:-http://127.0.0.1:18081/v1}
+      COALA_LOCAL_REQUIRE_API_KEY: ${COALA_LOCAL_REQUIRE_API_KEY:-false}
+      COALA_LOCAL_API_KEY: ${COALA_LOCAL_API_KEY:-local-key}
+      COALA_LOCAL_SUPPORTS_TOP_K: ${COALA_LOCAL_SUPPORTS_TOP_K:-false}
+      NO_PROXY: localhost,127.0.0.1
+      no_proxy: localhost,127.0.0.1
+    network_mode: host
+    stdin_open: true
+    tty: true
+    command: python main.py

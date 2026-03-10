@@ -1,0 +1,23 @@
+services:
+  coala-cloud-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: coala-agent:cloud-gateway
+    container_name: coala-cloud-gateway
+    working_dir: /app
+    volumes:
+      - ./:/app
+    env_file:
+      - .env
+    environment:
+      COALA_REMOTE_MODEL: ${COALA_REMOTE_MODEL:-qwen3.5-397b-a17b}
+      COALA_REMOTE_API_BASE: ${COALA_REMOTE_API_BASE:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      COALA_REMOTE_TIMEOUT_S: ${COALA_REMOTE_TIMEOUT_S:-120}
+      COALA_SERVICE_HOST: ${COALA_SERVICE_HOST:-0.0.0.0}
+      COALA_SERVICE_PORT: ${COALA_SERVICE_PORT:-18080}
+      COALA_SERVICE_ALLOW_ORIGIN: ${COALA_SERVICE_ALLOW_ORIGIN:-*}
+    ports:
+      - "${COALA_SERVICE_PORT:-18080}:${COALA_SERVICE_PORT:-18080}"
+    restart: unless-stopped
+    command: python scripts/cloud_397b_service.py

@@ -1,0 +1,16 @@
+.git
+.env
+.pytest_cache
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.log
+
+.venv
+venv
+
+data/chroma_db
+data/logs
+models
+third_party
