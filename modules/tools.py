@@ -8,14 +8,13 @@ Design goals:
 from __future__ import annotations
 
 import contextlib
-import importlib.util
 import inspect
 import io
-import os
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
+
+from skills.runtime_loader import SkillPluginLoader
 
 
 ToolFunc = Callable[[str], str]
@@ -64,26 +63,12 @@ class ToolBox:
 
         Only user-defined public callables are imported as tools.
         """
-
-        if not self.skills_file.exists():
-            return
-
-        module_name = "custom_skills_runtime"
-        if module_name in sys.modules:
-            del sys.modules[module_name]
-
-        spec = importlib.util.spec_from_file_location(module_name, str(self.skills_file))
-        if spec is None or spec.loader is None:
-            return
-
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-
-        for attr_name in dir(module):
-            attr = getattr(module, attr_name)
-            if not callable(attr) or attr_name.startswith("_"):
-                continue
-
+        index_file = self.skills_file.with_name("index.json")
+        loader = SkillPluginLoader(
+            skills_file=self.skills_file,
+            index_file=index_file,
+        )
+        for attr_name, attr in loader.load().items():
             # Wrap arbitrary function signatures into string-input tools.
             self.registry.register(attr_name, self._wrap_skill(attr_name, attr))
 

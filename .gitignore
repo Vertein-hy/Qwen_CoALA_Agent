@@ -44,5 +44,6 @@ data/logs/
 !Modelfile
 !.gitkeep
 !skills/internalized/*.py
+!skills/internalized/index.json
 !requirements.txt
 !README.md

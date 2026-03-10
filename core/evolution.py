@@ -55,7 +55,13 @@ Code:
         if self.skill_manager.has_skill(func_name):
             return False
 
-        self.skill_manager.append_skill(source=user_intent, function_code=function_code)
+        try:
+            self.skill_manager.append_skill(
+                source=user_intent,
+                function_code=function_code,
+            )
+        except ValueError:
+            return False
         return True
 
     @staticmethod
