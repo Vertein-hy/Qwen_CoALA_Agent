@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import copy
 import re
 from dataclasses import dataclass
 
@@ -118,7 +119,50 @@ class SkillValidator:
             text = parts[1] if len(parts) > 1 else ""
         if text.endswith("```"):
             text = text.rsplit("\n", 1)[0]
-        return text.strip()
+        text = text.strip()
+        if not text:
+            return ""
+
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:
+            return text
+
+        function_defs = [
+            node
+            for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        ]
+        if len(function_defs) != 1:
+            return text
+
+        function_node = copy.deepcopy(function_defs[0])
+        module_imports = [
+            copy.deepcopy(node)
+            for node in tree.body
+            if isinstance(node, (ast.Import, ast.ImportFrom))
+        ]
+        if module_imports:
+            insert_at = 1 if SkillValidator._has_docstring(function_node) else 0
+            function_node.body[insert_at:insert_at] = module_imports
+
+        normalized_module = ast.Module(body=[function_node], type_ignores=[])
+        ast.fix_missing_locations(normalized_module)
+        try:
+            return ast.unparse(normalized_module).strip()
+        except Exception:  # noqa: BLE001
+            return text
+
+    @staticmethod
+    def _has_docstring(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+        if not node.body:
+            return False
+        first_stmt = node.body[0]
+        return (
+            isinstance(first_stmt, ast.Expr)
+            and isinstance(first_stmt.value, ast.Constant)
+            and isinstance(first_stmt.value.value, str)
+        )
 
     def _collect_safety_violations(self, tree: ast.Module, errors: list[str]) -> None:
         for node in ast.walk(tree):

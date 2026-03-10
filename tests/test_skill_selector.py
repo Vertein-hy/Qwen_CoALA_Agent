@@ -38,3 +38,26 @@ def to_upper_text(text):
     assert ranked
     assert ranked[0].name == "calc_sum_n"
     assert ranked[0].score > 0
+
+
+def test_selector_handles_compound_chinese_phrase_overlap(tmp_path: Path) -> None:
+    manager = _build_manager(tmp_path)
+    manager.append_skill(
+        source="返回两个整数的最小公倍数",
+        function_code="""
+def calc_lcm(a, b):
+    \"\"\"Return least common multiple.\"\"\"
+    if a == 0 or b == 0:
+        return 0
+    x, y = abs(a), abs(b)
+    while y:
+        x, y = y, x % y
+    return abs(a * b) // x
+        """,
+    )
+
+    selector = SkillSelector(manager)
+    ranked = selector.recommend("请计算12和18的最小公倍数", top_k=3)
+
+    assert ranked
+    assert ranked[0].name == "calc_lcm"
