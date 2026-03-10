@@ -8,6 +8,7 @@ This document defines folder responsibilities and isolation boundaries.
 - `memory/`: Long-term and short-term memory implementations.
 - `modules/`: Tool execution and other runtime modules used by the agent loop.
 - `config/`: Typed settings and prompt templates.
+- `apps/`: Optional app entrypoints/UI (e.g., web console), isolated from gateway.
 
 ## Skill subsystem (plugin style)
 

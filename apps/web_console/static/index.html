@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CoALA Web Console</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 16px; background: #f7f7f9; color: #222; }
+      h1 { margin-top: 0; }
+      .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      .card { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 12px; }
+      textarea { width: 100%; min-height: 100px; font-family: Consolas, monospace; }
+      button { margin-right: 8px; padding: 6px 12px; }
+      pre { background: #111; color: #ddd; padding: 10px; overflow: auto; max-height: 280px; }
+      .chat-log { max-height: 360px; overflow: auto; border: 1px solid #ddd; padding: 10px; background: #fff; }
+      .msg { margin: 8px 0; padding: 8px; border-radius: 6px; }
+      .user { background: #e7f1ff; }
+      .bot { background: #eef8ee; }
+    </style>
+  </head>
+  <body>
+    <h1>CoALA Web Console</h1>
+    <p>用于对话、技能检查、日志查看。默认仅绑定 127.0.0.1。</p>
+
+    <div class="card">
+      <h3>Chat</h3>
+      <div id="chatLog" class="chat-log"></div>
+      <textarea id="chatInput" placeholder="输入消息，例如：请计算1到100的和"></textarea>
+      <div>
+        <button onclick="sendChat()">发送</button>
+        <button onclick="checkHealth()">健康检查</button>
+      </div>
+      <pre id="healthBox"></pre>
+    </div>
+
+    <div class="row">
+      <div class="card">
+        <h3>Skills</h3>
+        <button onclick="loadSkills()">刷新技能</button>
+        <pre id="skillsBox"></pre>
+      </div>
+      <div class="card">
+        <h3>Logs</h3>
+        <button onclick="loadLogs('skill')">Skill Logs</button>
+        <button onclick="loadLogs('memory')">Memory Logs</button>
+        <pre id="logsBox"></pre>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Skill Validate</h3>
+      <textarea id="skillCode" placeholder="粘贴候选技能函数代码"></textarea>
+      <div><button onclick="validateSkill()">校验</button></div>
+      <pre id="validateBox"></pre>
+    </div>
+
+    <script>
+      async function api(path, opts = {}) {
+        const res = await fetch(path, {
+          headers: { "Content-Type": "application/json" },
+          ...opts,
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(JSON.stringify(data));
+        return data;
+      }
+
+      function appendChat(role, text) {
+        const node = document.createElement("div");
+        node.className = "msg " + (role === "user" ? "user" : "bot");
+        node.textContent = role.toUpperCase() + ": " + text;
+        document.getElementById("chatLog").appendChild(node);
+        document.getElementById("chatLog").scrollTop = 999999;
+      }
+
+      async function sendChat() {
+        const input = document.getElementById("chatInput");
+        const message = input.value.trim();
+        if (!message) return;
+        appendChat("user", message);
+        input.value = "";
+        try {
+          const data = await api("/api/chat", {
+            method: "POST",
+            body: JSON.stringify({ message }),
+          });
+          appendChat("bot", data.reply || "");
+        } catch (err) {
+          appendChat("bot", "ERROR: " + err.message);
+        }
+      }
+
+      async function checkHealth() {
+        const data = await api("/api/health");
+        document.getElementById("healthBox").textContent = JSON.stringify(data, null, 2);
+      }
+
+      async function loadSkills() {
+        const data = await api("/api/skills");
+        document.getElementById("skillsBox").textContent = JSON.stringify(data.index, null, 2) +
+          "\n\n=== custom_skills.py ===\n" + data.source_text;
+      }
+
+      async function loadLogs(kind) {
+        const data = await api("/api/logs?type=" + encodeURIComponent(kind) + "&limit=50");
+        document.getElementById("logsBox").textContent = JSON.stringify(data, null, 2);
+      }
+
+      async function validateSkill() {
+        const code = document.getElementById("skillCode").value;
+        const data = await api("/api/validate-skill", {
+          method: "POST",
+          body: JSON.stringify({ code }),
+        });
+        document.getElementById("validateBox").textContent = JSON.stringify(data, null, 2);
+      }
+
+      checkHealth();
+      loadSkills();
+      loadLogs("skill");
+    </script>
+  </body>
+</html>

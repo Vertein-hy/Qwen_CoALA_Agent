@@ -1,0 +1,1 @@
+"""CoALA web console package."""
