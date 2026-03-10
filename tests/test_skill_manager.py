@@ -65,3 +65,19 @@ def not_safe():
     return subprocess.run(["echo", "x"])
             """,
         )
+
+
+def test_append_skill_escapes_multiline_source_prompt(tmp_path: Path) -> None:
+    manager = _build_manager(tmp_path)
+    manager.append_skill(
+        source="[small]\n请按 ReAct\ndef calc_sum_n(n): ...\n最后输出",
+        function_code="""
+def calc_sum_n(n):
+    \"\"\"Return sum from 1 to n.\"\"\"
+    return sum(range(1, n + 1))
+        """,
+    )
+
+    content = (tmp_path / "custom_skills.py").read_text(encoding="utf-8")
+    assert "def calc_sum_n(n): ..." not in content
+    assert "#         def calc_sum_n(n): ..." in content

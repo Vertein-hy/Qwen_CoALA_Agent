@@ -51,3 +51,20 @@ def skip_me():
 
     assert "keep_me" in loaded
     assert "skip_me" not in loaded
+
+
+def test_runtime_loader_returns_empty_when_skill_file_has_syntax_error(tmp_path: Path) -> None:
+    skill_file = tmp_path / "custom_skills.py"
+    skill_file.write_text(
+        """
+def broken():
+    返回 1
+        """.strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    loader = SkillPluginLoader(skills_file=skill_file)
+    loaded = loader.load()
+
+    assert loaded == {}

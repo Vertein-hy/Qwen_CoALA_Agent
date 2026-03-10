@@ -31,7 +31,13 @@ class SkillPluginLoader:
             return {}
 
         module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        try:
+            spec.loader.exec_module(module)
+        except Exception as exc:  # noqa: BLE001
+            # Keep agent startup resilient: one malformed generated skill file
+            # must not break the whole runtime.
+            print(f"[skills] failed to load '{self.skills_file}': {exc}")
+            return {}
 
         allowed = self._allowed_names()
         loaded: dict[str, Callable] = {}

@@ -42,7 +42,9 @@ class SkillManager:
             raise ValueError(f"Skill '{validation.function_name}' already exists.")
 
         with self.skill_file.open("a", encoding="utf-8") as f:
-            f.write(f"\n\n# Source: {source}\n")
+            f.write("\n\n")
+            f.write(self._format_source_comment(source))
+            f.write("\n")
             f.write(validation.normalized_code.strip() + "\n")
         self.catalog.add_record(
             name=validation.function_name,
@@ -56,3 +58,13 @@ class SkillManager:
 
     def list_skills(self) -> list[str]:
         return sorted(record.name for record in self.catalog.list_records() if record.enabled)
+
+    @staticmethod
+    def _format_source_comment(source: str) -> str:
+        lines = [line.strip() for line in source.splitlines() if line.strip()]
+        if not lines:
+            return "# Source: (empty)"
+        formatted = [f"# Source: {lines[0]}"]
+        for line in lines[1:]:
+            formatted.append(f"#         {line}")
+        return "\n".join(formatted)
