@@ -20,7 +20,9 @@ from memory.vector_store import MemorySystem
 from memory.working_memory import WorkingMemory
 from modules.emotion import EmotionEngine
 from modules.tools import ToolBox
+from skills.event_logger import SkillEventLogger
 from skills.manager import SkillManager
+from skills.selector import SkillCandidate, SkillSelector
 
 
 class CognitiveAgent:
@@ -35,6 +37,7 @@ class CognitiveAgent:
         tools: ToolBox | None = None,
         emotion_engine: EmotionEngine | None = None,
         evolver: SkillEvolver | None = None,
+        skill_manager: SkillManager | None = None,
     ):
         self.config = config or load_config()
         self.prompts = self._load_prompts()
@@ -44,10 +47,20 @@ class CognitiveAgent:
         self.long_term_memory = long_term_memory or MemorySystem(self.config.memory)
         self.tools = tools or ToolBox()
         self.emotion_engine = emotion_engine or EmotionEngine(self.llm)
-        self.evolver = evolver or SkillEvolver(self.llm, SkillManager())
+        self.skill_manager = skill_manager or SkillManager()
+        self.skill_selector = SkillSelector(self.skill_manager)
+        self.skill_event_logger = SkillEventLogger(
+            enabled=self.config.skills.enable_event_log,
+            event_log_dir=self.config.skills.event_log_dir,
+        )
+        self.evolver = evolver or SkillEvolver(self.llm, self.skill_manager)
         self.scorer = RuleBasedScorer()
 
-        self._refresh_system_prompt(mood=self.emotion_engine.current_mood, memories=[])
+        self._refresh_system_prompt(
+            mood=self.emotion_engine.current_mood,
+            memories=[],
+            skill_candidates=[],
+        )
 
     def run(self, user_input: str) -> str:
         trace_id = self._new_trace_id()
@@ -58,9 +71,28 @@ class CognitiveAgent:
             query_type="task_context",
         )
         related_memories = memory_result.get("documents", [])
+        skill_candidates = self.skill_selector.recommend(
+            query=user_input,
+            top_k=self.config.skills.candidate_top_k,
+        )
+        self.skill_event_logger.log(
+            "skill_candidates",
+            trace_id,
+            {
+                "query": user_input,
+                "candidates": [
+                    {"name": item.name, "score": item.score}
+                    for item in skill_candidates
+                ],
+            },
+        )
 
         mood = self.emotion_engine.update_mood(user_input, related_memories)
-        self._refresh_system_prompt(mood=mood, memories=related_memories)
+        self._refresh_system_prompt(
+            mood=mood,
+            memories=related_memories,
+            skill_candidates=skill_candidates,
+        )
         self.working_memory.add_message("user", user_input)
 
         messages = self.working_memory.get_context()
@@ -77,7 +109,30 @@ class CognitiveAgent:
             action = ReActParser.parse_action(response)
             if action:
                 tool_steps += 1
+                is_internalized_skill = self.skill_selector.has_skill(action.tool_name)
+                if is_internalized_skill:
+                    self.skill_event_logger.log(
+                        "skill_called",
+                        trace_id,
+                        {
+                            "tool_name": action.tool_name,
+                            "tool_input_preview": action.tool_input[:160],
+                        },
+                    )
                 observation = self.tools.execute(action.tool_name, action.tool_input)
+                if is_internalized_skill:
+                    event_type = "skill_success"
+                    lowered_observation = observation.lower()
+                    if "error" in lowered_observation or "not found" in lowered_observation:
+                        event_type = "skill_fail"
+                    self.skill_event_logger.log(
+                        event_type,
+                        trace_id,
+                        {
+                            "tool_name": action.tool_name,
+                            "observation_preview": observation[:200],
+                        },
+                    )
                 messages.append({"role": "assistant", "content": response})
                 messages.append({"role": "user", "content": f"Observation: {observation}"})
                 continue
@@ -145,7 +200,12 @@ class CognitiveAgent:
         self.working_memory.add_message("assistant", timeout_response)
         return timeout_response
 
-    def _refresh_system_prompt(self, mood: str, memories: list[str]) -> None:
+    def _refresh_system_prompt(
+        self,
+        mood: str,
+        memories: list[str],
+        skill_candidates: list[SkillCandidate],
+    ) -> None:
         template = self.prompts.get("system_persona", self._default_system_template())
         memories_text = "\n".join(f"- {item}" for item in memories) if memories else "[暂无相关记忆]"
         base_prompt = template.format(
@@ -154,6 +214,10 @@ class CognitiveAgent:
             memories=memories_text,
         )
         prompt = self._append_language_instruction(base_prompt)
+        prompt = self._append_skill_candidates_instruction(
+            prompt=prompt,
+            candidates=skill_candidates,
+        )
         self.working_memory.replace_system_prompt(prompt)
 
     @staticmethod
@@ -198,6 +262,26 @@ class CognitiveAgent:
                 "3. 代码、命令、路径、API 字段名保持原文。\n"
             )
         return prompt
+
+    @staticmethod
+    def _append_skill_candidates_instruction(
+        *,
+        prompt: str,
+        candidates: list[SkillCandidate],
+    ) -> str:
+        if not candidates:
+            return prompt
+        lines = [
+            prompt,
+            "",
+            "[候选内部技能]",
+            "以下技能与当前任务可能相关，若可满足需求请优先调用，避免重复编写 python_repl 代码：",
+        ]
+        for idx, item in enumerate(candidates, 1):
+            lines.append(
+                f"{idx}. {item.name} (score={item.score:.2f}) - source: {item.source_excerpt}"
+            )
+        return "\n".join(lines)
 
     def _try_evolve(self, messages: list[dict[str, str]], user_input: str) -> None:
         candidate_code = None

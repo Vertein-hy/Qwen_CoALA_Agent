@@ -14,6 +14,8 @@ This document defines folder responsibilities and isolation boundaries.
 - `skills/manager.py`: Entry point for skill validation and persistence.
 - `skills/validator.py`: Static safety/readability validation for generated skills.
 - `skills/catalog.py`: Metadata index for persisted skills (`index.json`).
+- `skills/selector.py`: Rank existing skills for current user task.
+- `skills/event_logger.py`: Skill selection/call telemetry JSONL logs.
 - `skills/runtime_loader.py`: Controlled runtime plugin loader.
 - `skills/internalized/`: Generated skill code and metadata index.
 

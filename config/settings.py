@@ -115,6 +115,15 @@ class AgentConfig:
 
 
 @dataclass(frozen=True)
+class SkillConfig:
+    """Runtime controls for skill selection and skill event logging."""
+
+    candidate_top_k: int = 3
+    enable_event_log: bool = True
+    event_log_dir: Path = BASE_DIR / "data" / "logs" / "skill_events"
+
+
+@dataclass(frozen=True)
 class AppConfig:
     """Top-level app configuration container."""
 
@@ -123,6 +132,7 @@ class AppConfig:
     routing: RoutingConfig = field(default_factory=RoutingConfig)
     memory: MemoryConfig = field(default_factory=MemoryConfig)
     agent: AgentConfig = field(default_factory=AgentConfig)
+    skills: SkillConfig = field(default_factory=SkillConfig)
 
 
 def _bool_from_env(name: str, default: bool) -> bool:
@@ -217,6 +227,16 @@ def load_config() -> AppConfig:
         default_max_tokens=int(os.getenv("COALA_AGENT_MAX_TOKENS", "1024")),
         default_seed=_optional_int_from_env("COALA_AGENT_SEED"),
     )
+    skills = SkillConfig(
+        candidate_top_k=int(os.getenv("COALA_SKILL_CANDIDATE_TOP_K", "3")),
+        enable_event_log=_bool_from_env("COALA_SKILL_EVENT_LOG", True),
+        event_log_dir=Path(
+            os.getenv(
+                "COALA_SKILL_EVENT_LOG_DIR",
+                str(BASE_DIR / "data" / "logs" / "skill_events"),
+            )
+        ),
+    )
 
     return AppConfig(
         local_model=local,
@@ -224,6 +244,7 @@ def load_config() -> AppConfig:
         routing=routing,
         memory=memory,
         agent=agent,
+        skills=skills,
     )
 
 

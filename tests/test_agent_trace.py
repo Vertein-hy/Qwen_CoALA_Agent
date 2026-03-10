@@ -32,9 +32,10 @@ if importlib.util.find_spec("chromadb") is None:
     sys.modules["chromadb.utils"] = chromadb_utils_stub
     sys.modules["chromadb.utils.embedding_functions"] = embedding_stub
 
-from config.settings import AgentConfig, AppConfig
+from config.settings import AgentConfig, AppConfig, SkillConfig
 from core.agent import CognitiveAgent
 from core.contracts import ChatResult
+from skills.manager import SkillManager
 
 
 class FakeMemory:
@@ -116,8 +117,16 @@ class ToolLoopLLM:
         return ChatResult(content=self.response, model_name="fake-model", route="fake-route")
 
 
-def _build_agent(llm: object, memory: FakeMemory, max_steps: int = 2) -> CognitiveAgent:
-    config = AppConfig(agent=AgentConfig(max_steps=max_steps, memory_top_k=3, default_temperature=0.1))
+def _build_agent(
+    llm: object,
+    memory: FakeMemory,
+    max_steps: int = 2,
+    skill_manager: SkillManager | None = None,
+) -> CognitiveAgent:
+    config = AppConfig(
+        agent=AgentConfig(max_steps=max_steps, memory_top_k=3, default_temperature=0.1),
+        skills=SkillConfig(enable_event_log=False),
+    )
     return CognitiveAgent(
         config=config,
         llm=llm,  # type: ignore[arg-type]
@@ -125,6 +134,7 @@ def _build_agent(llm: object, memory: FakeMemory, max_steps: int = 2) -> Cogniti
         tools=FakeTools(),  # type: ignore[arg-type]
         emotion_engine=FakeEmotionEngine(),  # type: ignore[arg-type]
         evolver=FakeEvolver(),  # type: ignore[arg-type]
+        skill_manager=skill_manager,
     )
 
 
@@ -162,3 +172,31 @@ def test_system_prompt_contains_chinese_language_requirement() -> None:
     system_prompt = agent.working_memory.get_context()[0]["content"]
 
     assert "简体中文" in system_prompt
+
+
+def test_system_prompt_includes_ranked_skill_candidates(tmp_path) -> None:
+    skill_manager = SkillManager(
+        skill_file=tmp_path / "custom_skills.py",
+        index_file=tmp_path / "index.json",
+    )
+    skill_manager.append_skill(
+        source="计算 1 到 n 的和",
+        function_code="""
+def calc_sum_n(n):
+    \"\"\"Return sum from 1 to n.\"\"\"
+    return sum(range(1, n + 1))
+        """,
+    )
+
+    memory = FakeMemory()
+    agent = _build_agent(
+        llm=FinalAnswerLLM(),
+        memory=memory,
+        skill_manager=skill_manager,
+    )
+
+    _ = agent.run("请帮我计算从1到100的和")
+    system_prompt = agent.working_memory.get_context()[0]["content"]
+
+    assert "[候选内部技能]" in system_prompt
+    assert "calc_sum_n" in system_prompt
