@@ -8,7 +8,7 @@
 
 ## 2026-03-12
 
-### `2026-03-12T16:35:00+08:00` `stabilize small-model tool routing and loop guard`
+### `2026-03-12T16:47:56+08:00` `stabilize small-model tool routing and loop guard`
 
 更新了什么
 
@@ -16,6 +16,7 @@
 - 新增确定性技能路由，对“直接调用现有工具、只返回结果”这类请求走快速路径
 - 新增循环保护，检测重复响应和重复工具执行，避免小模型陷入低价值死循环
 - 为 `calc_sum_n / calc_lcm / fibonacci` 增加轻量语义打分，降低同分误选概率
+- 全量测试通过：`pytest -q` -> `43 passed in 1.32s`
 
 对应文档
 
