@@ -44,10 +44,10 @@ class ConsoleState:
         self._agent_init_error: str | None = None
         self._lock = threading.Lock()
 
-    def run_chat(self, user_input: str) -> str:
+    def run_chat(self, user_input: str) -> dict[str, Any]:
         with self._lock:
             agent = self._ensure_agent()
-            return agent.run(user_input)
+            return agent.run_with_trace(user_input)
 
     def validate_skill(self, code: str) -> dict[str, Any]:
         result = self.skill_manager.validate(code)
@@ -168,11 +168,11 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                 self._send_json(400, {"error": "message is required"})
                 return
             try:
-                reply = STATE.run_chat(user_input)
+                result = STATE.run_chat(user_input)
             except Exception as exc:  # noqa: BLE001
                 self._send_json(500, {"error": str(exc)})
                 return
-            self._send_json(200, {"reply": reply})
+            self._send_json(200, result)
             return
 
         if self.path == "/api/validate-skill":

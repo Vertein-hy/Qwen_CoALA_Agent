@@ -483,6 +483,33 @@ def calc_sum_n(n):
     assert tools.calls == [("calc_sum_n", "10")]
 
 
+def test_direct_skill_router_binds_toolspec_path_input(tmp_path) -> None:
+    skill_manager = SkillManager(
+        skill_file=tmp_path / "custom_skills.py",
+        index_file=tmp_path / "index.json",
+    )
+    skill_manager.append_skill(
+        source="inspect current project path",
+        function_code="""
+def inspect_repo(repo_path):
+    return repo_path
+        """,
+    )
+    tools = FakeTools()
+    memory = FakeMemory()
+    agent = _build_agent(
+        llm=FinalAnswerLLM(),
+        memory=memory,
+        skill_manager=skill_manager,
+        tools=tools,
+    )
+
+    answer = agent.run("请直接调用现有工具检查当前项目路径，只返回结果。")
+
+    assert answer == "ok"
+    assert tools.calls == [("inspect_repo", "'.'")]
+
+
 def test_repeated_same_response_stops_before_max_steps() -> None:
     memory = FakeMemory()
     agent = _build_agent(llm=ToolLoopLLM(), memory=memory, max_steps=5)
@@ -491,3 +518,34 @@ def test_repeated_same_response_stops_before_max_steps() -> None:
 
     assert "重复输出相同内容" in answer
     assert memory.add_write_reasons[0] == "fallback_response"
+
+
+def test_run_with_trace_exposes_action_observation_and_final(tmp_path) -> None:
+    skill_manager = SkillManager(
+        skill_file=tmp_path / "custom_skills.py",
+        index_file=tmp_path / "index.json",
+    )
+    skill_manager.append_skill(
+        source="sum numbers from 1 to n",
+        function_code="""
+def calc_sum_n(n):
+    return sum(range(1, n + 1))
+        """,
+    )
+    tools = FakeTools()
+    memory = FakeMemory()
+    agent = _build_agent(
+        llm=FinalAnswerLLM(),
+        memory=memory,
+        skill_manager=skill_manager,
+        tools=tools,
+    )
+
+    trace = agent.run_with_trace("请直接调用现有工具计算 1 到 10 的整数和，只返回结果。")
+
+    assert trace["reply"] == "55"
+    step_kinds = [item["kind"] for item in trace["steps"]]
+    assert "direct_route" in step_kinds
+    assert "action" in step_kinds
+    assert "observation" in step_kinds
+    assert "final" in step_kinds

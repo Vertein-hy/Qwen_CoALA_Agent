@@ -5,54 +5,172 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>CoALA Web Console</title>
     <style>
-      body { font-family: Arial, sans-serif; margin: 16px; background: #f7f7f9; color: #222; }
-      h1 { margin-top: 0; }
-      .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-      .card { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 12px; }
-      textarea { width: 100%; min-height: 100px; font-family: Consolas, monospace; }
-      button { margin-right: 8px; padding: 6px 12px; }
-      pre { background: #111; color: #ddd; padding: 10px; overflow: auto; max-height: 280px; }
-      .chat-log { max-height: 360px; overflow: auto; border: 1px solid #ddd; padding: 10px; background: #fff; }
-      .msg { margin: 8px 0; padding: 8px; border-radius: 6px; }
-      .user { background: #e7f1ff; }
-      .bot { background: #eef8ee; }
+      :root {
+        --bg: #f4f1ea;
+        --card: #fffdf8;
+        --ink: #1f2933;
+        --muted: #6b7280;
+        --line: #d7d1c7;
+        --accent: #1f5c4a;
+        --accent-soft: #e5f1ec;
+        --user: #e7f0ff;
+        --bot: #eef7ee;
+        --trace: #111827;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+        background:
+          radial-gradient(circle at top left, rgba(31, 92, 74, 0.10), transparent 32%),
+          linear-gradient(180deg, #fbfaf6 0%, var(--bg) 100%);
+        color: var(--ink);
+      }
+      main { max-width: 1400px; margin: 0 auto; padding: 20px; }
+      h1 { margin: 0 0 6px; font-size: 30px; }
+      p.lead { margin: 0 0 18px; color: var(--muted); }
+      .layout { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; }
+      .stack { display: grid; gap: 16px; }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 14px;
+        box-shadow: 0 10px 30px rgba(31, 41, 51, 0.05);
+      }
+      .card h3 { margin: 0 0 10px; }
+      .toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+      textarea {
+        width: 100%;
+        min-height: 110px;
+        resize: vertical;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 10px 12px;
+        background: #fff;
+        color: var(--ink);
+        font: 14px/1.6 Consolas, "Courier New", monospace;
+      }
+      button {
+        border: 0;
+        border-radius: 999px;
+        padding: 8px 14px;
+        background: var(--accent);
+        color: #fff;
+        cursor: pointer;
+      }
+      button.secondary {
+        background: #e8e1d6;
+        color: var(--ink);
+      }
+      .chat-log {
+        max-height: 420px;
+        overflow: auto;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 10px;
+        background: #fff;
+      }
+      .msg {
+        margin: 8px 0;
+        padding: 10px 12px;
+        border-radius: 10px;
+        white-space: pre-wrap;
+      }
+      .user { background: var(--user); }
+      .bot { background: var(--bot); }
+      .trace-box, pre {
+        background: var(--trace);
+        color: #e5e7eb;
+        border-radius: 10px;
+        padding: 12px;
+        overflow: auto;
+        max-height: 420px;
+        font: 13px/1.55 Consolas, "Courier New", monospace;
+      }
+      .trace-step {
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 10px;
+        padding: 10px;
+        margin-bottom: 10px;
+        background: rgba(255, 255, 255, 0.04);
+      }
+      .trace-step strong { color: #93c5fd; }
+      .trace-step .meta { color: #9ca3af; margin: 6px 0 0; }
+      .meta-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+      .pill {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 999px;
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-size: 12px;
+        margin-right: 6px;
+      }
+      @media (max-width: 980px) {
+        .layout { grid-template-columns: 1fr; }
+        .meta-grid { grid-template-columns: 1fr; }
+      }
     </style>
   </head>
   <body>
-    <h1>CoALA Web Console</h1>
-    <p>用于对话、技能检查、日志查看。默认仅绑定 127.0.0.1。</p>
+    <main>
+      <h1>CoALA Web Console</h1>
+      <p class="lead">用于直接测试 Agent 主流程，并查看每轮 Action / Observation / Tool Spec 的结构化 trace。</p>
 
-    <div class="card">
-      <h3>Chat</h3>
-      <div id="chatLog" class="chat-log"></div>
-      <textarea id="chatInput" placeholder="输入消息，例如：请计算1到100的和"></textarea>
-      <div>
-        <button onclick="sendChat()">发送</button>
-        <button onclick="checkHealth()">健康检查</button>
-      </div>
-      <pre id="healthBox"></pre>
-    </div>
+      <div class="layout">
+        <div class="stack">
+          <section class="card">
+            <h3>对话测试</h3>
+            <div id="chatLog" class="chat-log"></div>
+            <textarea id="chatInput" placeholder="输入测试任务，例如：请直接调用现有工具计算 1 到 10 的整数和，只返回结果。"></textarea>
+            <div class="toolbar">
+              <button onclick="sendChat()">发送</button>
+              <button class="secondary" onclick="checkHealth()">健康检查</button>
+            </div>
+            <pre id="healthBox"></pre>
+          </section>
 
-    <div class="row">
-      <div class="card">
-        <h3>Skills</h3>
-        <button onclick="loadSkills()">刷新技能</button>
-        <pre id="skillsBox"></pre>
-      </div>
-      <div class="card">
-        <h3>Logs</h3>
-        <button onclick="loadLogs('skill')">Skill Logs</button>
-        <button onclick="loadLogs('memory')">Memory Logs</button>
-        <pre id="logsBox"></pre>
-      </div>
-    </div>
+          <section class="card">
+            <h3>运行 Trace</h3>
+            <div id="traceBox" class="trace-box">尚无运行 trace。</div>
+          </section>
+        </div>
 
-    <div class="card">
-      <h3>Skill Validate</h3>
-      <textarea id="skillCode" placeholder="粘贴候选技能函数代码"></textarea>
-      <div><button onclick="validateSkill()">校验</button></div>
-      <pre id="validateBox"></pre>
-    </div>
+        <div class="stack">
+          <section class="card">
+            <h3>技能</h3>
+            <div class="toolbar">
+              <button class="secondary" onclick="loadSkills()">加载技能</button>
+            </div>
+            <pre id="skillsBox"></pre>
+          </section>
+
+          <section class="card">
+            <h3>日志</h3>
+            <div class="toolbar">
+              <button class="secondary" onclick="loadLogs('skill')">Skill Logs</button>
+              <button class="secondary" onclick="loadLogs('memory')">Memory Logs</button>
+            </div>
+            <pre id="logsBox"></pre>
+          </section>
+
+          <section class="card">
+            <h3>技能校验</h3>
+            <textarea id="skillCode" placeholder="粘贴候选技能代码进行验证。"></textarea>
+            <div class="toolbar">
+              <button class="secondary" onclick="validateSkill()">验证</button>
+            </div>
+            <pre id="validateBox"></pre>
+          </section>
+        </div>
+      </div>
+    </main>
 
     <script>
       async function api(path, opts = {}) {
@@ -69,8 +187,65 @@
         const node = document.createElement("div");
         node.className = "msg " + (role === "user" ? "user" : "bot");
         node.textContent = role.toUpperCase() + ": " + text;
-        document.getElementById("chatLog").appendChild(node);
-        document.getElementById("chatLog").scrollTop = 999999;
+        const log = document.getElementById("chatLog");
+        log.appendChild(node);
+        log.scrollTop = log.scrollHeight;
+      }
+
+      function renderTrace(trace) {
+        const box = document.getElementById("traceBox");
+        if (!trace || !trace.trace_id) {
+          box.textContent = "尚无运行 trace。";
+          return;
+        }
+
+        const meta = [
+          `<div><span class="pill">trace_id</span>${trace.trace_id}</div>`,
+          `<div><span class="pill">status</span>${trace.status || ""}</div>`,
+          `<div><span class="pill">route</span>${trace.route || ""}</div>`,
+          `<div><span class="pill">model</span>${trace.model_name || ""}</div>`,
+        ].join("");
+
+        const candidates = (trace.skill_candidates || [])
+          .map(item => `- ${item.name} (score=${Number(item.score || 0).toFixed(2)})`)
+          .join("\n") || "(none)";
+
+        const matches = (trace.tool_matches || [])
+          .map(item => `- ${item.name} (score=${Number(item.score || 0).toFixed(2)}) :: ${item.purpose || ""}`)
+          .join("\n") || "(none)";
+
+        const steps = (trace.steps || []).map((step, idx) => {
+          const metaText = step.metadata && Object.keys(step.metadata).length
+            ? `<div class="meta">${escapeHtml(JSON.stringify(step.metadata, null, 2))}</div>`
+            : "";
+          return `
+            <div class="trace-step">
+              <div><strong>${idx + 1}. ${escapeHtml(step.title)}</strong> <span class="pill">${escapeHtml(step.kind)}</span></div>
+              <pre>${escapeHtml(step.content || "")}</pre>
+              ${metaText}
+            </div>
+          `;
+        }).join("");
+
+        box.innerHTML = `
+          <div class="meta-grid">${meta}</div>
+          <div class="trace-step">
+            <strong>Skill Candidates</strong>
+            <pre>${escapeHtml(candidates)}</pre>
+          </div>
+          <div class="trace-step">
+            <strong>Tool Matches</strong>
+            <pre>${escapeHtml(matches)}</pre>
+          </div>
+          ${steps || "<div class='trace-step'><strong>No steps</strong></div>"}
+        `;
+      }
+
+      function escapeHtml(text) {
+        return String(text)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;");
       }
 
       async function sendChat() {
@@ -85,6 +260,7 @@
             body: JSON.stringify({ message }),
           });
           appendChat("bot", data.reply || "");
+          renderTrace(data);
         } catch (err) {
           appendChat("bot", "ERROR: " + err.message);
         }
@@ -97,8 +273,10 @@
 
       async function loadSkills() {
         const data = await api("/api/skills");
-        document.getElementById("skillsBox").textContent = JSON.stringify(data.index, null, 2) +
-          "\n\n=== custom_skills.py ===\n" + data.source_text;
+        document.getElementById("skillsBox").textContent =
+          JSON.stringify(data.index, null, 2) +
+          "\n\n=== custom_skills.py ===\n" +
+          data.source_text;
       }
 
       async function loadLogs(kind) {

@@ -1,60 +1,69 @@
 # Web Console
 
-The web console is part of the CoALA runtime layer, not the network layer.
+用途
 
-Its purpose is:
+- 直接从浏览器测试 Agent 主流程
+- 查看每轮运行的结构化 trace
+- 检查技能列表、技能日志、记忆日志
+- 校验候选技能代码
 
-- chat with `CognitiveAgent`
-- inspect internalized skills
-- inspect skill and memory event logs
-- validate candidate skill code
+入口
 
-It should stay isolated from FRP topology, gateway internals, and host-to-host
-transport logic.
+- 程序入口：[server.py](/f:/temp/Qwen_CoALA_Agent/apps/web_console/server.py)
+- 静态页面：[index.html](/f:/temp/Qwen_CoALA_Agent/apps/web_console/static/index.html)
 
-## Start service on IPC
+默认地址
 
-```bash
-cd /dockerdata/Qwen_CoALA_Agent
-docker compose -f docker-compose.ipc.yml up -d coala-web
-docker compose -f docker-compose.ipc.yml ps
-curl -sS http://127.0.0.1:7860/api/health
-```
+- `http://127.0.0.1:7860`
 
-Default bind:
-
-- `COALA_WEB_HOST=127.0.0.1`
-- `COALA_WEB_PORT=7860`
-
-## Access from Windows via FRP STCP
-
-Keep the service local to IPC and expose it through a separate STCP pair.
-
-Example:
-
-- IPC local service: `127.0.0.1:7860`
-- Windows visitor bind: `127.0.0.1:17860`
-
-Then open:
-
-- `http://127.0.0.1:17860/`
-
-## Useful APIs
+接口
 
 - `GET /api/health`
-- `POST /api/chat` with `{"message":"..."}`
 - `GET /api/skills`
 - `GET /api/logs?type=skill&limit=50`
 - `GET /api/logs?type=memory&limit=50`
-- `POST /api/validate-skill` with `{"code":"def ..."}`
+- `POST /api/validate-skill`
+- `POST /api/chat`
 
-## Isolation rule
+`POST /api/chat`
 
-If a change is about:
+请求：
 
-- ports
-- STCP / FRP
-- host forwarding
-- async gateway topology
+```json
+{"message":"请直接调用现有工具计算 1 到 10 的整数和，只返回结果。"}
+```
 
-it does not belong in the web console.
+响应：
+
+```json
+{
+  "trace_id": "tr_xxx",
+  "status": "success",
+  "route": "deterministic_skill_router",
+  "model_name": "tool_spec_direct_route",
+  "reply": "55",
+  "skill_candidates": [],
+  "tool_matches": [],
+  "steps": [
+    {"kind": "direct_route", "title": "Direct Tool Route", "content": "calc_sum_n(10)", "metadata": {}},
+    {"kind": "action", "title": "Action", "content": "calc_sum_n(10)", "metadata": {}},
+    {"kind": "observation", "title": "Observation", "content": "55", "metadata": {}},
+    {"kind": "final", "title": "Final Result", "content": "55", "metadata": {}}
+  ]
+}
+```
+
+当前 trace 会暴露的步骤
+
+- `direct_route`
+- `llm_response`
+- `tool_spec`
+- `tool_spec_follow_up`
+- `action`
+- `observation`
+- `final`
+
+说明
+
+- Web Console 现在可以直接看到每轮 `Action / Observation / Tool Spec`
+- 该 trace 是结构化诊断信息，不包含完整系统 prompt 原文

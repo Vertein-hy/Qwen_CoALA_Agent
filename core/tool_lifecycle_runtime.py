@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import re
 from pathlib import Path
@@ -13,6 +14,7 @@ from core.react_parser import ReActParser
 from skills.event_logger import SkillEventLogger
 from skills.manager import SkillManager
 from skills.selector import SkillSelector
+from skills.runtime_loader import SkillPluginLoader
 from skills.tool_builder import ToolBuilderPlanner
 from skills.tool_contracts import (
     HelpRequestKind,
@@ -78,15 +80,20 @@ class ToolLifecycleRuntime:
     def build_tool_knowledge_base(self) -> ToolKnowledgeBase:
         specs: list[ToolSpec] = []
         seen: set[str] = set()
+        runtime_skills = SkillPluginLoader(
+            skills_file=self.skill_manager.skill_file,
+            index_file=self.skill_manager.index_file,
+        ).load()
         for record in self.skill_manager.catalog.list_records():
             if not record.enabled:
                 continue
+            runtime_func = runtime_skills.get(record.name)
             specs.append(
                 ToolSpec(
                     name=record.name,
-                    purpose=record.source.strip() or f"Reusable internalized skill: {record.name}",
-                    inputs=(ToolIOField(name="user_request", type_name="string"),),
-                    outputs=(ToolIOField(name="result", type_name="string"),),
+                    purpose=self._infer_skill_purpose(record.name, record.source, runtime_func),
+                    inputs=self._infer_skill_inputs(runtime_func),
+                    outputs=self._infer_skill_outputs(runtime_func),
                     examples=(record.source.strip(),) if record.source.strip() else (),
                     tags=("internalized_skill",),
                 )
@@ -98,6 +105,56 @@ class ToolLifecycleRuntime:
             specs.append(record.spec)
             seen.add(record.name)
         return ToolKnowledgeBase(specs=specs)
+
+    @staticmethod
+    def _infer_skill_purpose(name: str, source: str, runtime_func: object | None) -> str:
+        if callable(runtime_func):
+            doc = inspect.getdoc(runtime_func) or ""
+            if doc.strip():
+                return doc.strip()
+        return source.strip() or f"Reusable internalized skill: {name}"
+
+    @staticmethod
+    def _infer_skill_inputs(runtime_func: object | None) -> tuple[ToolIOField, ...]:
+        if not callable(runtime_func):
+            return (ToolIOField(name="user_request", type_name="string"),)
+        try:
+            signature = inspect.signature(runtime_func)
+        except (TypeError, ValueError):
+            return (ToolIOField(name="user_request", type_name="string"),)
+
+        fields: list[ToolIOField] = []
+        for param in signature.parameters.values():
+            if param.kind not in (
+                inspect.Parameter.POSITIONAL_ONLY,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            ):
+                continue
+            annotation = "string"
+            if param.annotation is not inspect._empty:
+                annotation = getattr(param.annotation, "__name__", str(param.annotation))
+            fields.append(
+                ToolIOField(
+                    name=param.name,
+                    type_name=annotation,
+                    required=param.default is inspect._empty,
+                )
+            )
+        return tuple(fields or (ToolIOField(name="user_request", type_name="string"),))
+
+    @staticmethod
+    def _infer_skill_outputs(runtime_func: object | None) -> tuple[ToolIOField, ...]:
+        if not callable(runtime_func):
+            return (ToolIOField(name="result", type_name="string"),)
+        try:
+            signature = inspect.signature(runtime_func)
+        except (TypeError, ValueError):
+            return (ToolIOField(name="result", type_name="string"),)
+
+        annotation = "string"
+        if signature.return_annotation is not inspect._empty:
+            annotation = getattr(signature.return_annotation, "__name__", str(signature.return_annotation))
+        return (ToolIOField(name="result", type_name=annotation),)
 
     def create_discovery_engine(self) -> ToolDiscoveryEngine:
         return ToolDiscoveryEngine(self.build_tool_knowledge_base())

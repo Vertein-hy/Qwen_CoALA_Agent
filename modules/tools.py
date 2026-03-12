@@ -124,6 +124,9 @@ class ToolBox:
         except Exception as exc:  # noqa: BLE001
             return f"Tool execution error: {exc}"
 
+    def has_tool(self, tool_name: str) -> bool:
+        return self.registry.has(tool_name)
+
     def python_repl(self, code: str) -> str:
         cleaned = self._strip_code_fence(code)
         output_buffer = io.StringIO()

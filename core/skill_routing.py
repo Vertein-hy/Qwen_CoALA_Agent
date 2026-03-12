@@ -1,63 +1,99 @@
-"""Deterministic skill-routing helpers for small-model execution."""
+"""Deterministic skill-routing helpers driven by ToolSpec contracts."""
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
 
-from skills.selector import SkillCandidate
+from skills.tool_contracts import ToolIOField, ToolMatchResult, ToolSpec
 
 
 @dataclass(frozen=True)
 class DirectSkillCall:
-    """A high-confidence skill call inferred without another LLM turn."""
+    """A high-confidence tool call inferred without another LLM turn."""
 
     tool_name: str
     tool_input: str
     reason: str
+    matched_via: str
 
 
 class SkillRouter:
-    """Apply narrow heuristics for explicit, deterministic skill requests."""
+    """Apply contract-aware deterministic routing when the request is explicit."""
 
     _INT_PATTERN = re.compile(r"-?\d+")
-    _SUM_N_PATTERN = re.compile(r"1\s*(?:到|-|至)\s*(\d+)")
+    _FLOAT_PATTERN = re.compile(r"-?\d+(?:\.\d+)?")
+    _PATH_PATTERN = re.compile(r"([A-Za-z]:\\[^\s\"']+|(?:\.{0,2}/)?[\w./-]+)")
+    _QUOTED_PATTERN = re.compile(r"[\"'“”‘’]([^\"'“”‘’]+)[\"'“”‘’]")
+    _WORD_PATTERN = re.compile(r"\b[A-Za-z][A-Za-z0-9_-]*\b")
+    _RANGE_PATTERN = re.compile(r"1\s*(?:到|至|-)\s*(\d+)")
     _DIRECT_HINTS = (
         "直接调用",
         "直接使用",
         "调用现有工具",
         "用现有工具",
+        "please call",
         "use existing tool",
     )
-    _RESULT_ONLY_HINTS = ("只返回结果", "只给结果", "only return the result")
+    _RESULT_ONLY_HINTS = (
+        "只返回结果",
+        "只给结果",
+        "直接给结果",
+        "only return the result",
+    )
+    _PATH_FIELD_NAMES = {
+        "path",
+        "repo_path",
+        "project_path",
+        "root_path",
+        "workspace_path",
+        "file_path",
+        "filename",
+        "name",
+    }
+    _REQUEST_FIELD_NAMES = {"user_request", "request", "query", "prompt", "instruction"}
+    _TEXT_FIELD_NAMES = {"text", "content", "message", "keyword", "pattern"}
+    _LIKELY_INT_FIELD_NAMES = {"n", "count", "index", "a", "b", "x", "y", "num", "number"}
+    _INT_TYPES = {"int", "integer", "number"}
+    _FLOAT_TYPES = {"float", "double"}
+    _TOP_MATCH_MIN_SCORE = 2.0
+    _TOP_MATCH_MARGIN = 0.75
 
     @classmethod
     def infer_direct_skill_call(
         cls,
         *,
         user_input: str,
-        candidates: list[SkillCandidate],
+        tool_matches: list[ToolMatchResult],
+        executable_tool_names: set[str],
     ) -> DirectSkillCall | None:
         normalized = user_input.strip().lower()
-        if not normalized:
+        if not normalized or not any(hint in normalized for hint in cls._DIRECT_HINTS):
             return None
 
-        if not any(hint in normalized for hint in cls._DIRECT_HINTS):
+        executable_matches = [
+            item for item in tool_matches if item.spec.name in executable_tool_names
+        ]
+        if not executable_matches:
             return None
 
-        candidate_names = {item.name for item in candidates}
-        preferred = cls._pick_preferred_candidate(normalized, candidate_names)
-        if preferred is None:
+        top_match = executable_matches[0]
+        if top_match.breakdown.total_score < cls._TOP_MATCH_MIN_SCORE:
             return None
+        if len(executable_matches) > 1:
+            margin = top_match.breakdown.total_score - executable_matches[1].breakdown.total_score
+            if margin < cls._TOP_MATCH_MARGIN:
+                return None
 
-        tool_input = cls._infer_tool_input(normalized, preferred)
-        if tool_input is None:
+        bound_input = cls._bind_tool_input(user_input=user_input, spec=top_match.spec)
+        if bound_input is None:
             return None
 
         return DirectSkillCall(
-            tool_name=preferred,
-            tool_input=tool_input,
-            reason="explicit_direct_skill_request",
+            tool_name=top_match.spec.name,
+            tool_input=bound_input,
+            reason="tool_spec_direct_route",
+            matched_via=top_match.rationale,
         )
 
     @classmethod
@@ -79,41 +115,90 @@ class SkillRouter:
         return action_name in {"calc_sum_n", "calc_lcm", "fibonacci"} and len(observation) <= 80
 
     @classmethod
-    def _pick_preferred_candidate(
-        cls,
-        query: str,
-        candidate_names: set[str],
-    ) -> str | None:
-        if "calc_sum_n" in candidate_names and any(
-            token in query for token in ("整数和", "求和", "sum")
-        ):
-            return "calc_sum_n"
-        if "calc_lcm" in candidate_names and any(
-            token in query for token in ("最小公倍数", "lcm")
-        ):
-            return "calc_lcm"
-        if "fibonacci" in candidate_names and any(
-            token in query for token in ("斐波那契", "fibonacci")
-        ):
-            return "fibonacci"
-        return next(iter(candidate_names), None)
+    def _bind_tool_input(cls, *, user_input: str, spec: ToolSpec) -> str | None:
+        if not spec.inputs:
+            return ""
+
+        remaining_ints = cls._INT_PATTERN.findall(user_input)
+        remaining_floats = cls._FLOAT_PATTERN.findall(user_input)
+        args: list[str] = []
+
+        for field in spec.inputs:
+            bound = cls._extract_field_binding(
+                user_input=user_input,
+                field=field,
+                remaining_ints=remaining_ints,
+                remaining_floats=remaining_floats,
+            )
+            if bound is None:
+                if field.required:
+                    return None
+                continue
+            args.append(bound)
+
+        return ", ".join(args)
 
     @classmethod
-    def _infer_tool_input(cls, query: str, tool_name: str) -> str | None:
-        numbers = cls._INT_PATTERN.findall(query)
-        if tool_name == "calc_sum_n":
-            match = cls._SUM_N_PATTERN.search(query)
-            if match:
-                return match.group(1)
-            if numbers:
-                return numbers[-1]
+    def _extract_field_binding(
+        cls,
+        *,
+        user_input: str,
+        field: ToolIOField,
+        remaining_ints: list[str],
+        remaining_floats: list[str],
+    ) -> str | None:
+        field_name = field.name.strip().lower()
+        field_type = field.type_name.strip().lower()
+        normalized = user_input.strip()
+        normalized_lower = normalized.lower()
+
+        if field_name in cls._REQUEST_FIELD_NAMES:
+            return repr(normalized)
+
+        if field_name in cls._PATH_FIELD_NAMES:
+            if any(token in normalized_lower for token in ("当前项目", "current project", "this project")):
+                return repr(".")
+            quoted = cls._QUOTED_PATTERN.search(normalized)
+            if quoted:
+                return repr(quoted.group(1))
+            path_match = cls._PATH_PATTERN.search(normalized)
+            if path_match:
+                return repr(path_match.group(1))
             return None
-        if tool_name == "calc_lcm":
-            if len(numbers) >= 2:
-                return ", ".join(numbers[:2])
+
+        if field_type in cls._INT_TYPES:
+            if field_name == "n":
+                range_match = cls._RANGE_PATTERN.search(normalized_lower)
+                if range_match:
+                    return range_match.group(1)
+            if remaining_ints:
+                return remaining_ints.pop(0)
             return None
-        if tool_name == "fibonacci":
-            if numbers:
-                return numbers[-1]
+
+        if field_name in cls._LIKELY_INT_FIELD_NAMES and remaining_ints:
+            if field_name == "n":
+                range_match = cls._RANGE_PATTERN.search(normalized_lower)
+                if range_match:
+                    return range_match.group(1)
+            return remaining_ints.pop(0)
+
+        if field_type in cls._FLOAT_TYPES:
+            if remaining_floats:
+                return remaining_floats.pop(0)
             return None
+
+        if field_name in cls._TEXT_FIELD_NAMES or field_type in {"str", "string", "text"}:
+            quoted = cls._QUOTED_PATTERN.search(normalized)
+            if quoted:
+                return repr(quoted.group(1))
+            if field_name == "name":
+                words = [
+                    item
+                    for item in cls._WORD_PATTERN.findall(normalized)
+                    if item.lower() not in {"please", "call", "tool", "result", "use", "existing"}
+                ]
+                if words:
+                    return repr(words[-1])
+            return repr(normalized)
+
         return None

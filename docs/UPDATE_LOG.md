@@ -8,7 +8,35 @@
 
 ## 2026-03-12
 
-### `2026-03-12T16:47:56+08:00` `stabilize small-model tool routing and loop guard`
+### `2026-03-12T17:20:00+08:00` `feat: expose web trace and generalize direct routing`
+
+更新了什么
+
+- 为 Agent 新增结构化运行 trace，包含每轮 `Action / Observation / Tool Spec / Final Result`
+- Web 控制台的 `POST /api/chat` 现在返回 trace，前端页面可以直接展示完整中间过程
+- 将“直接技能路由”从硬编码数学工具扩展为基于 `ToolSpec` 输入约束的通用绑定逻辑
+- internalized skill 在工具知识库中改为使用真实函数签名生成输入字段，而不是固定的 `user_request`
+- 新增控制台回归测试和 trace 回归测试
+- 全量测试通过：`pytest -q` -> `46 passed in 1.76s`
+
+对应文档
+
+- `docs/WEB_CONSOLE.md`
+- `docs/UPDATE_LOG.md`
+
+对应代码位置
+
+- `core/agent.py`
+- `core/agent_trace.py`
+- `core/skill_routing.py`
+- `core/tool_lifecycle_runtime.py`
+- `apps/web_console/server.py`
+- `apps/web_console/static/index.html`
+- `modules/tools.py`
+- `tests/test_agent_trace.py`
+- `tests/test_web_console.py`
+
+### `2026-03-12T16:47:56+08:00` `feat: stabilize small-model tool routing and loop guard`
 
 更新了什么
 

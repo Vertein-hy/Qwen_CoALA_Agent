@@ -8,6 +8,7 @@ from pathlib import Path
 
 from config.settings import AppConfig, load_config
 from core.agent_prompt_builder import AgentPromptBuilder
+from core.agent_trace import AgentTraceRecorder
 from core.context_compactor import LoopContextCompactor
 from core.evolution import SkillEvolver
 from core.llm_interface import LLMInterface
@@ -84,6 +85,7 @@ class CognitiveAgent:
         )
         self.tool_knowledge_base = self.tool_runtime.build_tool_knowledge_base()
         self.tool_discovery = ToolDiscoveryEngine(self.tool_knowledge_base)
+        self._active_trace: AgentTraceRecorder | None = None
 
         empty_context = self.tool_runtime.build_project_tool_context("")
         self._refresh_system_prompt(
@@ -96,7 +98,11 @@ class CognitiveAgent:
         )
 
     def run(self, user_input: str) -> str:
+        return str(self.run_with_trace(user_input)["reply"])
+
+    def run_with_trace(self, user_input: str) -> dict[str, object]:
         trace_id = self._new_trace_id()
+        self._active_trace = AgentTraceRecorder(trace_id=trace_id, user_input=user_input)
         self._reload_tool_runtime_state()
         related_memories = self._load_related_memories(user_input, trace_id)
         skill_candidates = self._load_skill_candidates(user_input, trace_id)
@@ -112,6 +118,7 @@ class CognitiveAgent:
             repeated_tool_cycle_limit=self.config.agent.repeated_tool_cycle_limit,
         )
         loop_compactor.start_run(goal=user_input, tool_matches=tool_matches)
+        self._record_trace_candidates(skill_candidates=skill_candidates, tool_matches=tool_matches)
 
         mood = self.emotion_engine.update_mood(user_input, related_memories)
         self._refresh_system_prompt(
@@ -130,9 +137,16 @@ class CognitiveAgent:
 
         direct_skill_call = SkillRouter.infer_direct_skill_call(
             user_input=user_input,
-            candidates=skill_candidates,
+            tool_matches=tool_matches,
+            executable_tool_names=self._executable_tool_names(),
         )
         if direct_skill_call is not None:
+            self._record_trace_step(
+                kind="direct_route",
+                title="Direct Tool Route",
+                content=f"{direct_skill_call.tool_name}({direct_skill_call.tool_input})",
+                metadata={"reason": direct_skill_call.reason, "matched_via": direct_skill_call.matched_via},
+            )
             return self._finalize_direct_skill_call(
                 user_input=user_input,
                 direct_skill_call=direct_skill_call,
@@ -159,6 +173,12 @@ class CognitiveAgent:
                 route_hint="auto",
             )
             response = llm_result.content
+            self._record_trace_step(
+                kind="llm_response",
+                title="LLM Response",
+                content=response,
+                metadata={"route": llm_result.route, "model_name": llm_result.model_name},
+            )
             if loop_guard.record_response(response):
                 return self._finalize_fallback(
                     user_input=user_input,
@@ -224,6 +244,12 @@ class CognitiveAgent:
 
             tool_spec = ToolLifecycleParser.parse_tool_spec(response)
             if tool_spec is not None:
+                self._record_trace_step(
+                    kind="tool_spec",
+                    title="Tool Spec",
+                    content=response,
+                    metadata={"source": "small_model", "tool_name": tool_spec.name},
+                )
                 loop_compactor.record_tool_spec(tool_spec, source="small_model")
                 messages.append({"role": "assistant", "content": response})
                 follow_up, accepted_spec = self.tool_runtime.handle_tool_spec(
@@ -235,6 +261,12 @@ class CognitiveAgent:
                 if accepted_spec is not None:
                     active_contract = accepted_spec
                     self._reload_tool_runtime_state()
+                self._record_trace_step(
+                    kind="tool_spec_follow_up",
+                    title="Tool Spec Follow-up",
+                    content=follow_up,
+                    metadata={"accepted": accepted_spec is not None},
+                )
                 loop_compactor.record_observation(follow_up)
                 messages.append({"role": "user", "content": follow_up})
                 continue
@@ -338,9 +370,14 @@ class CognitiveAgent:
         tool_context: ProjectToolContext,
         loop_compactor: LoopContextCompactor,
         messages: list[dict[str, str]],
-    ) -> str:
+    ) -> dict[str, object]:
         action_started = time.perf_counter()
         loop_compactor.record_action(action_name, action_input)
+        self._record_trace_step(
+            kind="action",
+            title="Action",
+            content=f"{action_name}({action_input})",
+        )
         is_internalized_skill = self.skill_selector.has_skill(action_name)
         if is_internalized_skill:
             self.skill_event_logger.log(
@@ -382,6 +419,12 @@ class CognitiveAgent:
             )
 
         loop_compactor.record_observation(observation)
+        self._record_trace_step(
+            kind="observation",
+            title="Observation",
+            content=observation,
+            metadata={"tool_name": action_name, "latency_ms": action_latency_ms},
+        )
         messages.append(
             {
                 "role": "assistant",
@@ -408,7 +451,7 @@ class CognitiveAgent:
         messages: list[dict[str, str]],
         route: str,
         model_name: str,
-    ) -> str:
+    ) -> dict[str, object]:
         loop_compactor.record_completion(final_answer)
         score = self.scorer.score(
             response_text=response,
@@ -448,7 +491,12 @@ class CognitiveAgent:
             score_snapshot=score.as_dict(),
         )
         self.working_memory.add_message("assistant", final_answer)
-        return final_answer
+        return self._finalize_trace(
+            status="success",
+            reply=final_answer,
+            route=route,
+            model_name=model_name,
+        )
 
     def _finalize_fallback(
         self,
@@ -463,7 +511,7 @@ class CognitiveAgent:
         messages: list[dict[str, str]],
         route: str,
         model_name: str,
-    ) -> str:
+    ) -> dict[str, object]:
         score = self.scorer.score(
             response_text=response,
             tool_steps=tool_steps,
@@ -502,7 +550,12 @@ class CognitiveAgent:
             self._reload_tool_runtime_state()
 
         self.working_memory.add_message("assistant", response)
-        return response
+        return self._finalize_trace(
+            status="fallback",
+            reply=response,
+            route=route,
+            model_name=model_name,
+        )
 
     def _finalize_timeout(
         self,
@@ -547,7 +600,12 @@ class CognitiveAgent:
             self._reload_tool_runtime_state()
 
         self.working_memory.add_message("assistant", timeout_response)
-        return timeout_response
+        return self._finalize_trace(
+            status="timeout",
+            reply=timeout_response,
+            route="timeout",
+            model_name="loop_guard",
+        )
 
     def _finalize_direct_skill_call(
         self,
@@ -559,7 +617,7 @@ class CognitiveAgent:
         tool_context: ProjectToolContext,
         loop_compactor: LoopContextCompactor,
         messages: list[dict[str, str]],
-    ) -> str:
+    ) -> dict[str, object]:
         observation = self._handle_action_step(
             action_name=direct_skill_call.tool_name,
             action_input=direct_skill_call.tool_input,
@@ -586,6 +644,77 @@ class CognitiveAgent:
     @staticmethod
     def _new_trace_id() -> str:
         return f"tr_{uuid.uuid4().hex}"
+
+    def _executable_tool_names(self) -> set[str]:
+        names = set(self.skill_manager.list_skills())
+        if hasattr(self.tools, "registry"):
+            names.update(getattr(self.tools.registry, "_tools", {}).keys())
+        return names
+
+    def _record_trace_candidates(
+        self,
+        *,
+        skill_candidates: list[SkillCandidate],
+        tool_matches: list[ToolMatchResult],
+    ) -> None:
+        if self._active_trace is None:
+            return
+        self._active_trace.set_candidates(
+            skill_candidates=skill_candidates,
+            tool_matches=tool_matches,
+        )
+
+    def _record_trace_step(
+        self,
+        *,
+        kind: str,
+        title: str,
+        content: str,
+        metadata: dict | None = None,
+    ) -> None:
+        if self._active_trace is None:
+            return
+        self._active_trace.add_step(
+            kind=kind,
+            title=title,
+            content=content,
+            metadata=metadata,
+        )
+
+    def _finalize_trace(
+        self,
+        *,
+        status: str,
+        reply: str,
+        route: str,
+        model_name: str,
+    ) -> dict[str, object]:
+        self._record_trace_step(
+            kind="final",
+            title="Final Result",
+            content=reply,
+            metadata={"status": status, "route": route, "model_name": model_name},
+        )
+        if self._active_trace is None:
+            return {
+                "trace_id": "",
+                "user_input": "",
+                "status": status,
+                "route": route,
+                "model_name": model_name,
+                "reply": reply,
+                "skill_candidates": [],
+                "tool_matches": [],
+                "steps": [],
+            }
+        payload = self._active_trace.finalize(
+            status=status,
+            reply=reply,
+            route=route,
+            model_name=model_name,
+        )
+        self._active_trace = None
+        return payload
 
     def _refresh_system_prompt(
         self,
