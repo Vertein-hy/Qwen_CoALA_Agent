@@ -8,7 +8,7 @@
 
 ## 2026-03-12
 
-### `2026-03-12T17:20:00+08:00` `feat: expose web trace and generalize direct routing`
+### `2026-03-12T17:03:15+08:00` `feat: expose web trace and generalize direct routing`
 
 更新了什么
 
