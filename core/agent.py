@@ -6,6 +6,7 @@ specialized components (LLM, memory, tools, emotion, evolution).
 
 from __future__ import annotations
 
+import json
 import re
 import uuid
 from pathlib import Path
@@ -24,6 +25,20 @@ from modules.tools import ToolBox
 from skills.event_logger import SkillEventLogger
 from skills.manager import SkillManager
 from skills.selector import SkillCandidate, SkillSelector
+from skills.tool_builder import ToolBuilderPlanner
+from skills.tool_contracts import (
+    HelpRequestKind,
+    ProjectToolContext,
+    ToolBuildRequest,
+    ToolFailureRecord,
+    ToolIOField,
+    ToolKnowledgeBase,
+    ToolMatchResult,
+    ToolSpec,
+)
+from skills.tool_discovery import ToolDiscoveryEngine
+from skills.tool_escalation import TeacherEscalationPlanner
+from skills.tool_parser import ToolLifecycleParser
 
 
 class CognitiveAgent:
@@ -56,11 +71,18 @@ class CognitiveAgent:
         )
         self.evolver = evolver or SkillEvolver(self.llm, self.skill_manager)
         self.scorer = RuleBasedScorer()
+        self.tool_knowledge_base = self._build_tool_knowledge_base()
+        self.tool_discovery = ToolDiscoveryEngine(self.tool_knowledge_base)
+        self.tool_builder = ToolBuilderPlanner()
+        self.teacher_escalation = TeacherEscalationPlanner()
 
+        empty_context = self._build_project_tool_context("")
         self._refresh_system_prompt(
             mood=self.emotion_engine.current_mood,
             memories=[],
             skill_candidates=[],
+            tool_context=empty_context,
+            tool_matches=[],
         )
 
     def run(self, user_input: str) -> str:
@@ -88,11 +110,16 @@ class CognitiveAgent:
             },
         )
 
+        tool_context = self._build_project_tool_context(user_input)
+        tool_matches = self.tool_discovery.recommend(tool_context, top_k=3)
+
         mood = self.emotion_engine.update_mood(user_input, related_memories)
         self._refresh_system_prompt(
             mood=mood,
             memories=related_memories,
             skill_candidates=skill_candidates,
+            tool_context=tool_context,
+            tool_matches=tool_matches,
         )
         self.working_memory.add_message("user", user_input)
 
@@ -136,6 +163,16 @@ class CognitiveAgent:
                     )
                 messages.append({"role": "assistant", "content": response})
                 messages.append({"role": "user", "content": f"Observation: {observation}"})
+                continue
+
+            tool_spec = ToolLifecycleParser.parse_tool_spec(response)
+            if tool_spec is not None:
+                messages.append({"role": "assistant", "content": response})
+                follow_up = self._handle_tool_spec(
+                    tool_spec=tool_spec,
+                    tool_context=tool_context,
+                )
+                messages.append({"role": "user", "content": follow_up})
                 continue
 
             final_answer = ReActParser.parse_final_answer(response)
@@ -212,11 +249,71 @@ class CognitiveAgent:
         self.working_memory.add_message("assistant", timeout_response)
         return timeout_response
 
+    def _handle_tool_spec(
+        self,
+        *,
+        tool_spec: ToolSpec,
+        tool_context: ProjectToolContext,
+    ) -> str:
+        readiness = self.tool_builder.assess_readiness(tool_spec)
+        if readiness.ready:
+            outline = self.tool_builder.build_outline(
+                ToolBuildRequest(
+                    context=tool_context,
+                    spec=tool_spec,
+                )
+            )
+            return (
+                "Observation: Tool contract accepted.\n"
+                f"{outline}\n"
+                "Next step: implement or compose this tool with python_repl, then continue."
+            )
+
+        teacher_request = self.teacher_escalation.create_request(
+            kind=HelpRequestKind.REPAIR_TOOL_CONTRACT,
+            context=tool_context,
+            current_spec=tool_spec,
+            failures=[
+                ToolFailureRecord(
+                    stage="contract_validation",
+                    reason="missing=" + ",".join(readiness.missing_items or ("unknown",)),
+                )
+            ],
+        )
+        teacher_reply = self._request_teacher_help(teacher_request)
+        return (
+            "Observation: Tool contract is incomplete.\n"
+            f"Missing items: {', '.join(readiness.missing_items) or '(none)'}\n"
+            "Teacher guidance follows.\n"
+            f"{teacher_reply}"
+        )
+
+    def _request_teacher_help(self, request: object) -> str:
+        prompt = (
+            "You are a larger-model teacher that helps a smaller agent repair or propose tools.\n"
+            "Return concise actionable guidance.\n\n"
+            f"{self._serialize_teacher_request(request)}"
+        )
+        result = self.llm.chat_with_meta(
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+            route_hint="large",
+        )
+        return result.content.strip()
+
+    @staticmethod
+    def _serialize_teacher_request(request: object) -> str:
+        if hasattr(request, "__dict__"):
+            return json.dumps(request.__dict__, ensure_ascii=False, default=str, indent=2)
+        return str(request)
+
     def _refresh_system_prompt(
         self,
         mood: str,
         memories: list[str],
         skill_candidates: list[SkillCandidate],
+        tool_context: ProjectToolContext,
+        tool_matches: list[ToolMatchResult],
     ) -> None:
         template = self.prompts.get("system_persona", self._default_system_template())
         memories_text = "\n".join(f"- {item}" for item in memories) if memories else "[暂无相关记忆]"
@@ -229,6 +326,11 @@ class CognitiveAgent:
         prompt = self._append_skill_candidates_instruction(
             prompt=prompt,
             candidates=skill_candidates,
+        )
+        prompt = self._append_tool_lifecycle_instruction(
+            prompt=prompt,
+            tool_context=tool_context,
+            tool_matches=tool_matches,
         )
         self.working_memory.replace_system_prompt(prompt)
 
@@ -294,6 +396,93 @@ class CognitiveAgent:
                 f"{idx}. {item.name} (score={item.score:.2f}) - source: {item.source_excerpt}"
             )
         return "\n".join(lines)
+
+    def _append_tool_lifecycle_instruction(
+        self,
+        *,
+        prompt: str,
+        tool_context: ProjectToolContext,
+        tool_matches: list[ToolMatchResult],
+    ) -> str:
+        lines = [
+            prompt,
+            "",
+            "[项目工具上下文]",
+            f"任务: {tool_context.task_summary or '(empty)'}",
+            "策略: 先复用合适工具；若没有合适工具，先定义 Tool Spec；再决定是否实现；构建受阻时再向大模型发起结构化求助。",
+        ]
+
+        if tool_context.existing_tools:
+            lines.append(f"已知工具: {', '.join(tool_context.existing_tools)}")
+        else:
+            lines.append("已知工具: (none)")
+
+        if tool_matches:
+            lines.append("")
+            lines.append("[工具匹配结果]")
+            for idx, item in enumerate(tool_matches, 1):
+                lines.append(
+                    f"{idx}. {item.spec.name} score={item.breakdown.total_score:.2f} "
+                    f"purpose={item.spec.purpose}"
+                )
+        else:
+            teacher_request = self.teacher_escalation.create_request(
+                kind=HelpRequestKind.PROPOSE_NEW_TOOL,
+                context=tool_context,
+                current_spec=None,
+                failures=[
+                    ToolFailureRecord(
+                        stage="discovery",
+                        reason="no high-confidence tool match in current project context",
+                    )
+                ],
+            )
+            lines.extend(
+                [
+                    "",
+                    "[工具策略]",
+                    "当前没有高置信可复用工具。",
+                    "请先输出一个 ```tool_spec ...``` JSON 代码块。",
+                    "Tool Spec 至少包含: name, purpose, inputs, outputs, side_effects, failure_modes, examples。",
+                    "如果契约不完整，系统会自动请求大模型给出修复建议。",
+                    f"建议求助类型: {teacher_request.kind.value}",
+                    f"建议求助输出: {teacher_request.requested_output}",
+                ]
+            )
+
+        return "\n".join(lines)
+
+    def _build_project_tool_context(self, user_input: str) -> ProjectToolContext:
+        return ProjectToolContext(
+            project_id="active-session",
+            task_summary=user_input.strip(),
+            available_inputs=("user_request", "memory_context"),
+            desired_outputs=("final_answer",),
+            constraints=(
+                "prefer_reuse_before_build",
+                "contract_first_before_code",
+                "structured_escalation_only_when_blocked",
+            ),
+            environment_facts=("python_available", "local_toolbox_available"),
+            existing_tools=tuple(self.skill_manager.list_skills()),
+        )
+
+    def _build_tool_knowledge_base(self) -> ToolKnowledgeBase:
+        specs: list[ToolSpec] = []
+        for record in self.skill_manager.catalog.list_records():
+            if not record.enabled:
+                continue
+            specs.append(
+                ToolSpec(
+                    name=record.name,
+                    purpose=record.source.strip() or f"Reusable internalized skill: {record.name}",
+                    inputs=(ToolIOField(name="user_request", type_name="string"),),
+                    outputs=(ToolIOField(name="result", type_name="string"),),
+                    examples=(record.source.strip(),) if record.source.strip() else (),
+                    tags=("internalized_skill",),
+                )
+            )
+        return ToolKnowledgeBase(specs=specs)
 
     def _try_evolve(
         self,

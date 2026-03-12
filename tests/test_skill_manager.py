@@ -79,5 +79,5 @@ def calc_sum_n(n):
     )
 
     content = (tmp_path / "custom_skills.py").read_text(encoding="utf-8")
-    assert "def calc_sum_n(n): ..." not in content
+    assert "\ndef calc_sum_n(n): ...\n" not in content
     assert "#         def calc_sum_n(n): ..." in content

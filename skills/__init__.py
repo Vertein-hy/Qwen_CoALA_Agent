@@ -19,6 +19,7 @@ from skills.tool_contracts import (
 )
 from skills.tool_discovery import ToolDiscoveryEngine
 from skills.tool_escalation import TeacherEscalationPlanner
+from skills.tool_parser import ToolLifecycleParser
 from skills.tool_promotion import ToolPromotionPolicy
 
 __all__ = [
@@ -38,6 +39,7 @@ __all__ = [
     "ToolFailureRecord",
     "ToolIOField",
     "ToolKnowledgeBase",
+    "ToolLifecycleParser",
     "ToolMatchResult",
     "ToolPromotionPolicy",
     "ToolSpec",

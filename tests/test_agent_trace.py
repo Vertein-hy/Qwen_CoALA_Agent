@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import importlib.util
 import sys
 import types
@@ -137,10 +137,48 @@ class CodeAnswerLLM:
         return ChatResult(content=self.response, model_name="fake-model", route="fake-route")
 
 
+@dataclass
+class ToolLifecycleLLM:
+    small_responses: list[str] = field(
+        default_factory=lambda: [
+            """```tool_spec
+{"name":"draft_sum_tool","purpose":"","inputs":[{"name":"n","type_name":"int"}],"outputs":[{"name":"result","type_name":"int"}]}
+```""",
+            "Thought: implement the repaired tool\nAction: python_repl\nAction Input: def draft_sum_tool(n):\n    return sum(range(1, n + 1))",
+            "Final Answer: tool ready",
+        ]
+    )
+    large_responses: list[str] = field(
+        default_factory=lambda: [
+            "Repair the contract by adding a clear purpose, failure modes, and examples."
+        ]
+    )
+    large_calls: int = 0
+
+    def chat_with_meta(
+        self,
+        messages: list[dict[str, str]],
+        temperature: float | None = None,
+        route_hint: str = "auto",
+    ) -> ChatResult:
+        if route_hint == "large":
+            self.large_calls += 1
+            return ChatResult(
+                content=self.large_responses.pop(0),
+                model_name="large-model",
+                route="forced_large",
+            )
+        return ChatResult(
+            content=self.small_responses.pop(0),
+            model_name="small-model",
+            route="forced_small",
+        )
+
+
 def _build_agent(
     llm: object,
     memory: FakeMemory,
-    max_steps: int = 2,
+    max_steps: int = 3,
     skill_manager: SkillManager | None = None,
 ) -> CognitiveAgent:
     config = AppConfig(
@@ -194,6 +232,16 @@ def test_system_prompt_contains_chinese_language_requirement() -> None:
     assert "[语言要求]" in system_prompt
 
 
+def test_system_prompt_contains_tool_lifecycle_context() -> None:
+    memory = FakeMemory()
+    agent = _build_agent(llm=FinalAnswerLLM(), memory=memory)
+
+    system_prompt = agent.working_memory.get_context()[0]["content"]
+
+    assert "[项目工具上下文]" in system_prompt
+    assert "Tool Spec" in system_prompt
+
+
 def test_system_prompt_includes_ranked_skill_candidates(tmp_path) -> None:
     skill_manager = SkillManager(
         skill_file=tmp_path / "custom_skills.py",
@@ -220,6 +268,7 @@ def calc_sum_n(n):
 
     assert "[候选内部技能]" in system_prompt
     assert "calc_sum_n" in system_prompt
+    assert "[工具匹配结果]" in system_prompt
 
 
 def test_agent_internalizes_skill_from_plain_code_block_response(tmp_path) -> None:
@@ -237,3 +286,23 @@ def test_agent_internalizes_skill_from_plain_code_block_response(tmp_path) -> No
     _ = agent.run("请给我一段可复用的求和函数")
 
     assert skill_manager.has_skill("auto_sum_n")
+
+
+def test_agent_requests_teacher_help_for_incomplete_tool_spec(tmp_path) -> None:
+    memory = FakeMemory()
+    llm = ToolLifecycleLLM()
+    skill_manager = SkillManager(
+        skill_file=tmp_path / "custom_skills.py",
+        index_file=tmp_path / "index.json",
+    )
+    agent = _build_agent(
+        llm=llm,
+        memory=memory,
+        max_steps=4,
+        skill_manager=skill_manager,
+    )
+
+    answer = agent.run("写一个求和工具")
+
+    assert answer == "tool ready"
+    assert llm.large_calls == 1
