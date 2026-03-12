@@ -1,19 +1,20 @@
 # 更新日志
 
-本文档按提交整理仓库演进
+本文档按提交记录仓库演进，统一写清三件事：
 
-
+- 更新时间
+- 更新了什么
+- 对应文档与代码位置
 
 ## 2026-03-12
 
-### `refactor agent coordinator into modules`
+### `2026-03-12T15:53:13+08:00` `refactor: split agent prompt and tool runtime`
 
 更新了什么：
 
-- 将系统提示词拼装从 `core/agent.py` 拆到独立模块
-- 将工具契约、teacher 升级、注册表晋升逻辑从 `core/agent.py` 拆到独立运行时模块
-- `core/agent.py` 回归协调器角色，体量从 800+ 行下降到约 550 行
-- 后续再扩展 prompt 或 tool lifecycle 时，不需要继续修改主协调器
+- 将系统提示词拼装从主协调器拆分到独立模块
+- 将工具契约处理、teacher 升级、实现代码挂接、晋升逻辑拆到独立运行时模块
+- `core/agent.py` 回归编排角色，体量从 800+ 行下降到约 550 行
 
 对应文档：
 
@@ -26,22 +27,20 @@
 - `core/agent_prompt_builder.py`
 - `core/tool_lifecycle_runtime.py`
 
-### `promote registered tools and solidify entrypoints`
+### `2026-03-12T15:38:01+08:00` `feat: promote registered tools and document entrypoints`
 
 更新了什么：
 
 - 增加 `ToolRegistry -> SkillManager` 的晋升桥接
-- 只有达到全局晋升条件且已有实现代码时，才自动写入正式 internalized skill
+- 达到全局晋升条件且已有实现代码时，自动写入正式 internalized skill
 - 固定测试入口为 `scripts/run_tests.py`
-- 新增程序入口文档、测试矩阵文档、文档索引
-- 将更新日志统一改为中文结构，固定记录“更新了什么 / 对应文档 / 对应代码位置”
+- 增加程序入口说明、测试矩阵、文档索引
 
 对应文档：
 
 - `docs/ENTRYPOINTS.md`
 - `docs/TEST_MATRIX.md`
 - `docs/DOCS_INDEX.md`
-- `docs/UPDATE_LOG.md`
 - `README.md`
 
 对应代码位置：
@@ -53,14 +52,14 @@
 - `scripts/run_tests.py`
 - `tests/test_agent_trace.py`
 
-### `persist tool registry and promotion history`
+### `2026-03-12T15:27:41+08:00` `feat: persist tool registry and promotion history`
 
 更新了什么：
 
-- 新增持久化 `ToolRegistry`，候选 `ToolSpec` 不再只存在于当前回合
-- 记录工具执行结果并交给 `ToolPromotionPolicy` 做晋升判断
-- 达到全局晋升条件且已有实现代码时，自动写入 `skills/internalized/`
-- 补充了工具注册表、晋升持久化、自动内化相关测试
+- 增加持久化 `ToolRegistry`
+- 候选 `ToolSpec` 不再只存在于当前回合
+- 工具执行结果进入 `ToolPromotionPolicy`
+- 工具达到条件后可继续晋升
 
 对应文档：
 
@@ -77,13 +76,13 @@
 - `tests/test_agent_trace.py`
 - `tests/test_tool_lifecycle.py`
 
-### `compact loop context and repair tool specs`
+### `2026-03-12T15:16:37+08:00` `feat: compact loop context and repair tool specs`
 
 更新了什么：
 
 - 增加小模型长回合上下文压缩
-- 增加 `[Execution Brief]` 和 `[Compressed Loop History]`
-- 大模型修复后的 `ToolSpec` 能重新进入自动流程
+- 增加 `[Execution Brief]` 与 `[Compressed Loop History]`
+- 大模型修复后的 `ToolSpec` 可以重新进入自动流程
 
 对应文档：
 
@@ -97,7 +96,7 @@
 - `config/settings.py`
 - `tests/test_agent_trace.py`
 
-### `close tool-spec loop and stabilize pytest`
+### `2026-03-12T15:08:31+08:00` `feat: close tool-spec loop and stabilize pytest`
 
 更新了什么：
 
@@ -117,7 +116,7 @@
 - `core/agent.py`
 - `tests/test_agent_trace.py`
 
-### `scaffold tool lifecycle architecture`
+### `2026-03-12T14:55:56+08:00` `feat: scaffold tool lifecycle architecture`
 
 更新了什么：
 
@@ -138,7 +137,7 @@
 - `skills/tool_promotion.py`
 - `tests/test_tool_lifecycle.py`
 
-### `clean encoding artifacts and repo defaults`
+### `2026-03-12T00:00:00+08:00` `fix: clean encoding artifacts and repo defaults`
 
 更新了什么：
 
@@ -155,7 +154,7 @@
 - `pytest.ini`
 - `tests/conftest.py`
 
-### `clarify network boundary and deployment roles`
+### `2026-03-12T00:00:00+08:00` `docs: clarify network boundary and deployment roles`
 
 更新了什么：
 

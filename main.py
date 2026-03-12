@@ -1,4 +1,4 @@
-﻿"""CLI entrypoint for CoALA Agent."""
+"""CLI entrypoint for CoALA Agent."""
 
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ from core.agent import CognitiveAgent
 
 
 def main() -> None:
-    # Always bypass proxy for local inference endpoint.
     os.environ["NO_PROXY"] = "localhost,127.0.0.1"
     os.environ["no_proxy"] = "localhost,127.0.0.1"
 
@@ -32,7 +31,7 @@ def main() -> None:
         try:
             user_input = input(Fore.BLUE + "User: " + Style.RESET_ALL)
             if user_input.strip().lower() in {"exit", "quit"}:
-                print("再见！")
+                print("再见。")
                 break
             if not user_input.strip():
                 continue
