@@ -161,4 +161,9 @@ class ToolBox:
             text = text.split("\n", 1)[-1]
         if text.endswith("```"):
             text = text.rsplit("\n", 1)[0]
+        if (
+            (text.startswith("'''") and text.endswith("'''"))
+            or (text.startswith('"""') and text.endswith('"""'))
+        ):
+            text = text[3:-3]
         return text.strip()

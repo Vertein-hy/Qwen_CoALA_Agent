@@ -8,6 +8,24 @@
 
 ## 2026-03-12
 
+### `2026-03-12T17:20:00+08:00` `fix: execute triple-quoted python_repl inputs`
+
+更新了什么
+
+- 修复 `python_repl` 对三引号包裹代码的处理
+- 当模型输出 `Action Input: ''' ... '''` 或 `\"\"\" ... \"\"\"` 时，工具现在会正确解包并执行代码
+- 新增 `python_repl` 输入规范化回归测试
+- 全量测试通过：`pytest -q` -> `48 passed in 1.13s`
+
+对应文档
+
+- `docs/UPDATE_LOG.md`
+
+对应代码位置
+
+- `modules/tools.py`
+- `tests/test_tools.py`
+
 ### `2026-03-12T17:03:15+08:00` `feat: expose web trace and generalize direct routing`
 
 更新了什么
