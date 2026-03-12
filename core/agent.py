@@ -14,6 +14,7 @@ from pathlib import Path
 import yaml
 
 from config.settings import AppConfig, load_config
+from core.context_compactor import LoopContextCompactor
 from core.evolution import SkillEvolver
 from core.llm_interface import LLMInterface
 from core.react_parser import ReActParser
@@ -83,6 +84,7 @@ class CognitiveAgent:
             skill_candidates=[],
             tool_context=empty_context,
             tool_matches=[],
+            loop_brief="",
         )
 
     def run(self, user_input: str) -> str:
@@ -112,6 +114,11 @@ class CognitiveAgent:
 
         tool_context = self._build_project_tool_context(user_input)
         tool_matches = self.tool_discovery.recommend(tool_context, top_k=3)
+        loop_compactor = LoopContextCompactor(
+            keep_recent_messages=self.config.agent.keep_recent_messages,
+            compress_trigger=self.config.agent.compact_history_trigger,
+        )
+        loop_compactor.start_run(goal=user_input, tool_matches=tool_matches)
 
         mood = self.emotion_engine.update_mood(user_input, related_memories)
         self._refresh_system_prompt(
@@ -120,6 +127,7 @@ class CognitiveAgent:
             skill_candidates=skill_candidates,
             tool_context=tool_context,
             tool_matches=tool_matches,
+            loop_brief=loop_compactor.build_brief(),
         )
         self.working_memory.add_message("user", user_input)
 
@@ -127,8 +135,19 @@ class CognitiveAgent:
         tool_steps = 0
 
         for _ in range(self.config.agent.max_steps):
+            self._refresh_system_prompt(
+                mood=mood,
+                memories=related_memories,
+                skill_candidates=skill_candidates,
+                tool_context=tool_context,
+                tool_matches=tool_matches,
+                loop_brief=loop_compactor.build_brief(),
+            )
+            if messages and messages[0].get("role") == "system":
+                messages[0] = dict(self.working_memory.get_context()[0])
+            messages_for_model = loop_compactor.compact_messages(messages)
             llm_result = self.llm.chat_with_meta(
-                messages=messages,
+                messages=messages_for_model,
                 temperature=self.config.agent.default_temperature,
                 route_hint="auto",
             )
@@ -137,6 +156,7 @@ class CognitiveAgent:
             action = ReActParser.parse_action(response)
             if action:
                 tool_steps += 1
+                loop_compactor.record_action(action.tool_name, action.tool_input)
                 is_internalized_skill = self.skill_selector.has_skill(action.tool_name)
                 if is_internalized_skill:
                     self.skill_event_logger.log(
@@ -161,22 +181,27 @@ class CognitiveAgent:
                             "observation_preview": observation[:200],
                         },
                     )
+                loop_compactor.record_observation(observation)
                 messages.append({"role": "assistant", "content": response})
                 messages.append({"role": "user", "content": f"Observation: {observation}"})
                 continue
 
             tool_spec = ToolLifecycleParser.parse_tool_spec(response)
             if tool_spec is not None:
+                loop_compactor.record_tool_spec(tool_spec, source="small_model")
                 messages.append({"role": "assistant", "content": response})
                 follow_up = self._handle_tool_spec(
                     tool_spec=tool_spec,
                     tool_context=tool_context,
+                    loop_compactor=loop_compactor,
                 )
+                loop_compactor.record_observation(follow_up)
                 messages.append({"role": "user", "content": follow_up})
                 continue
 
             final_answer = ReActParser.parse_final_answer(response)
             if final_answer:
+                loop_compactor.record_completion(final_answer)
                 score = self.scorer.score(
                     response_text=response,
                     tool_steps=tool_steps,
@@ -254,6 +279,8 @@ class CognitiveAgent:
         *,
         tool_spec: ToolSpec,
         tool_context: ProjectToolContext,
+        loop_compactor: LoopContextCompactor | None = None,
+        allow_teacher_repair: bool = True,
     ) -> str:
         readiness = self.tool_builder.assess_readiness(tool_spec)
         if readiness.ready:
@@ -269,6 +296,13 @@ class CognitiveAgent:
                 "Next step: implement or compose this tool with python_repl, then continue."
             )
 
+        if not allow_teacher_repair:
+            return (
+                "Observation: Tool contract is still incomplete after teacher repair.\n"
+                f"Missing items: {', '.join(readiness.missing_items) or '(none)'}\n"
+                "Next step: repair the remaining fields before implementation."
+            )
+
         teacher_request = self.teacher_escalation.create_request(
             kind=HelpRequestKind.REPAIR_TOOL_CONTRACT,
             context=tool_context,
@@ -281,6 +315,22 @@ class CognitiveAgent:
             ],
         )
         teacher_reply = self._request_teacher_help(teacher_request)
+        if loop_compactor is not None:
+            loop_compactor.record_teacher_guidance(teacher_reply)
+        repaired_spec = ToolLifecycleParser.parse_tool_spec(teacher_reply)
+        if repaired_spec is not None:
+            if loop_compactor is not None:
+                loop_compactor.record_tool_spec(repaired_spec, source="teacher")
+            repaired_follow_up = self._handle_tool_spec(
+                tool_spec=repaired_spec,
+                tool_context=tool_context,
+                loop_compactor=loop_compactor,
+                allow_teacher_repair=False,
+            )
+            return (
+                "Observation: Teacher returned a repaired tool contract.\n"
+                f"{repaired_follow_up}"
+            )
         return (
             "Observation: Tool contract is incomplete.\n"
             f"Missing items: {', '.join(readiness.missing_items) or '(none)'}\n"
@@ -291,7 +341,8 @@ class CognitiveAgent:
     def _request_teacher_help(self, request: object) -> str:
         prompt = (
             "You are a larger-model teacher that helps a smaller agent repair or propose tools.\n"
-            "Return concise actionable guidance.\n\n"
+            "Return a fenced ```tool_spec``` JSON block whenever you repair or propose a contract.\n"
+            "After the block, add at most three concise notes.\n\n"
             f"{self._serialize_teacher_request(request)}"
         )
         result = self.llm.chat_with_meta(
@@ -314,6 +365,7 @@ class CognitiveAgent:
         skill_candidates: list[SkillCandidate],
         tool_context: ProjectToolContext,
         tool_matches: list[ToolMatchResult],
+        loop_brief: str,
     ) -> None:
         template = self.prompts.get("system_persona", self._default_system_template())
         memories_text = "\n".join(f"- {item}" for item in memories) if memories else "[暂无相关记忆]"
@@ -331,6 +383,10 @@ class CognitiveAgent:
             prompt=prompt,
             tool_context=tool_context,
             tool_matches=tool_matches,
+        )
+        prompt = self._append_execution_brief_instruction(
+            prompt=prompt,
+            loop_brief=loop_brief,
         )
         self.working_memory.replace_system_prompt(prompt)
 
@@ -451,6 +507,12 @@ class CognitiveAgent:
             )
 
         return "\n".join(lines)
+
+    @staticmethod
+    def _append_execution_brief_instruction(*, prompt: str, loop_brief: str) -> str:
+        if not loop_brief.strip():
+            return prompt
+        return f"{prompt}\n\n{loop_brief}"
 
     def _build_project_tool_context(self, user_input: str) -> ProjectToolContext:
         return ProjectToolContext(

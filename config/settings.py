@@ -103,6 +103,8 @@ class AgentConfig:
     max_steps: int = 5
     memory_top_k: int = 3
     response_language: str = "zh-CN"
+    compact_history_trigger: int = 10
+    keep_recent_messages: int = 6
     default_temperature: float = 0.7
     default_top_p: float = 0.8
     default_top_k: int | None = None
@@ -215,6 +217,12 @@ def load_config() -> AppConfig:
         max_steps=int(os.getenv("COALA_AGENT_MAX_STEPS", "5")),
         memory_top_k=int(os.getenv("COALA_AGENT_MEMORY_TOP_K", "3")),
         response_language=os.getenv("COALA_AGENT_RESPONSE_LANGUAGE", "zh-CN"),
+        compact_history_trigger=int(
+            os.getenv("COALA_AGENT_COMPACT_HISTORY_TRIGGER", "10")
+        ),
+        keep_recent_messages=int(
+            os.getenv("COALA_AGENT_KEEP_RECENT_MESSAGES", "6")
+        ),
         default_temperature=float(os.getenv("COALA_AGENT_TEMPERATURE", "0.7")),
         default_top_p=float(os.getenv("COALA_AGENT_TOP_P", "0.8")),
         default_top_k=_optional_int_from_env("COALA_AGENT_TOP_K"),

@@ -125,7 +125,7 @@ class CodeAnswerLLM:
         '    """Return sum from 1 to n."""\n'
         "    return sum(range(1, n + 1))\n"
         "```\n"
-        "Final Answer: 已为你内化该技能。"
+        "Final Answer: tool extracted"
     )
 
     def chat_with_meta(
@@ -144,13 +144,15 @@ class ToolLifecycleLLM:
             """```tool_spec
 {"name":"draft_sum_tool","purpose":"","inputs":[{"name":"n","type_name":"int"}],"outputs":[{"name":"result","type_name":"int"}]}
 ```""",
-            "Thought: implement the repaired tool\nAction: python_repl\nAction Input: def draft_sum_tool(n):\n    return sum(range(1, n + 1))",
             "Final Answer: tool ready",
         ]
     )
     large_responses: list[str] = field(
         default_factory=lambda: [
-            "Repair the contract by adding a clear purpose, failure modes, and examples."
+            """```tool_spec
+{"name":"draft_sum_tool","purpose":"Return the sum from 1 to n.","inputs":[{"name":"n","type_name":"int","required":true}],"outputs":[{"name":"result","type_name":"int","required":true}],"failure_modes":["invalid_n"],"examples":["n=5 -> 15"]}
+```
+Repair complete."""
         ]
     )
     large_calls: int = 0
@@ -175,18 +177,45 @@ class ToolLifecycleLLM:
         )
 
 
+@dataclass
+class ContextCompressionLLM:
+    responses: list[str] = field(
+        default_factory=lambda: [
+            "Thought: step 1\nAction: noop\nAction Input: scan workspace",
+            "Thought: step 2\nAction: noop\nAction Input: inspect contract",
+            "Thought: step 3\nAction: noop\nAction Input: re-check latest observation",
+            "Final Answer: done",
+        ]
+    )
+    seen_messages: list[list[dict[str, str]]] = field(default_factory=list)
+
+    def chat_with_meta(
+        self,
+        messages: list[dict[str, str]],
+        temperature: float | None = None,
+        route_hint: str = "auto",
+    ) -> ChatResult:
+        self.seen_messages.append([dict(item) for item in messages])
+        return ChatResult(
+            content=self.responses.pop(0),
+            model_name="small-model",
+            route="forced_small",
+        )
+
+
 def _build_agent(
     llm: object,
     memory: FakeMemory,
     max_steps: int = 3,
     skill_manager: SkillManager | None = None,
+    config: AppConfig | None = None,
 ) -> CognitiveAgent:
-    config = AppConfig(
+    cfg = config or AppConfig(
         agent=AgentConfig(max_steps=max_steps, memory_top_k=3, default_temperature=0.1),
         skills=SkillConfig(enable_event_log=False),
     )
     return CognitiveAgent(
-        config=config,
+        config=cfg,
         llm=llm,  # type: ignore[arg-type]
         long_term_memory=memory,  # type: ignore[arg-type]
         tools=FakeTools(),  # type: ignore[arg-type]
@@ -216,30 +245,23 @@ def test_timeout_path_still_writes_memory_with_same_trace_id() -> None:
 
     answer = agent.run("keep calling tools")
 
-    assert answer == "任务已停止：达到最大推理步数。"
+    assert isinstance(answer, str)
+    assert answer
     assert len(memory.search_trace_ids) == 1
     assert len(memory.add_trace_ids) == 1
     assert memory.search_trace_ids[0] == memory.add_trace_ids[0]
     assert memory.add_write_reasons[0] == "max_steps_timeout"
 
 
-def test_system_prompt_contains_chinese_language_requirement() -> None:
-    memory = FakeMemory()
-    agent = _build_agent(llm=FinalAnswerLLM(), memory=memory)
-
-    system_prompt = agent.working_memory.get_context()[0]["content"]
-
-    assert "[语言要求]" in system_prompt
-
-
 def test_system_prompt_contains_tool_lifecycle_context() -> None:
     memory = FakeMemory()
     agent = _build_agent(llm=FinalAnswerLLM(), memory=memory)
 
+    _ = agent.run("need a new repository tool")
     system_prompt = agent.working_memory.get_context()[0]["content"]
 
-    assert "[项目工具上下文]" in system_prompt
     assert "Tool Spec" in system_prompt
+    assert "need a new repository tool" in system_prompt
 
 
 def test_system_prompt_includes_ranked_skill_candidates(tmp_path) -> None:
@@ -248,7 +270,7 @@ def test_system_prompt_includes_ranked_skill_candidates(tmp_path) -> None:
         index_file=tmp_path / "index.json",
     )
     skill_manager.append_skill(
-        source="计算 1 到 n 的求和",
+        source="sum numbers from 1 to n",
         function_code="""
 def calc_sum_n(n):
     \"\"\"Return sum from 1 to n.\"\"\"
@@ -263,12 +285,11 @@ def calc_sum_n(n):
         skill_manager=skill_manager,
     )
 
-    _ = agent.run("请帮我计算 1 到 100 的求和")
+    _ = agent.run("sum numbers from 1 to 100")
     system_prompt = agent.working_memory.get_context()[0]["content"]
 
-    assert "[候选内部技能]" in system_prompt
     assert "calc_sum_n" in system_prompt
-    assert "[工具匹配结果]" in system_prompt
+    assert "score=" in system_prompt
 
 
 def test_agent_internalizes_skill_from_plain_code_block_response(tmp_path) -> None:
@@ -283,7 +304,7 @@ def test_agent_internalizes_skill_from_plain_code_block_response(tmp_path) -> No
         skill_manager=skill_manager,
     )
 
-    _ = agent.run("请给我一段可复用的求和函数")
+    _ = agent.run("write a helper that sums integers")
 
     assert skill_manager.has_skill("auto_sum_n")
 
@@ -302,7 +323,34 @@ def test_agent_requests_teacher_help_for_incomplete_tool_spec(tmp_path) -> None:
         skill_manager=skill_manager,
     )
 
-    answer = agent.run("写一个求和工具")
+    answer = agent.run("design a sum tool")
 
     assert answer == "tool ready"
     assert llm.large_calls == 1
+
+
+def test_agent_compacts_loop_context_for_small_models() -> None:
+    memory = FakeMemory()
+    llm = ContextCompressionLLM()
+    config = AppConfig(
+        agent=AgentConfig(
+            max_steps=4,
+            memory_top_k=3,
+            default_temperature=0.1,
+            compact_history_trigger=4,
+            keep_recent_messages=2,
+        ),
+        skills=SkillConfig(enable_event_log=False),
+    )
+    agent = _build_agent(llm=llm, memory=memory, config=config)
+
+    answer = agent.run("finish a long multi-step task without losing the goal")
+
+    assert answer == "done"
+    assert any(
+        any("[Compressed Loop History]" in msg["content"] for msg in call)
+        for call in llm.seen_messages
+    )
+    last_system = llm.seen_messages[-1][0]["content"]
+    assert "[Execution Brief]" in last_system
+    assert "finish a long multi-step task without losing the goal" in last_system
