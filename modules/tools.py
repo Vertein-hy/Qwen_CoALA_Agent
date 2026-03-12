@@ -96,7 +96,7 @@ class ToolBox:
             "[Built-in Tools]",
             "1. python_repl: execute Python code safely in session state.",
             "2. write_file: write a file, format is 'filename|content'.",
-            "3. read_file: read a file by name from data directory.",
+            "3. read_file: read a file by relative path; if input contains '|', only the filename part is used.",
         ]
 
         custom_lines = []
@@ -151,10 +151,22 @@ class ToolBox:
         return f"File written: {target}"
 
     def read_file(self, name: str) -> str:
-        target = self.data_dir / name.strip()
-        if not target.exists():
+        raw = name.strip()
+        if not raw:
             return "File does not exist."
-        return target.read_text(encoding="utf-8")
+        if "|" in raw:
+            raw = raw.split("|", 1)[0].strip()
+        candidate = Path(raw)
+        search_order = []
+        if candidate.is_absolute():
+            search_order.append(candidate)
+        else:
+            search_order.append(Path.cwd() / candidate)
+            search_order.append(self.data_dir / candidate)
+        for target in search_order:
+            if target.exists() and target.is_file():
+                return target.read_text(encoding="utf-8")
+        return "File does not exist."
 
     @staticmethod
     def _strip_code_fence(code: str) -> str:

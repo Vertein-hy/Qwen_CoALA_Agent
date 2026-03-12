@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from modules.tools import ToolBox
 
 
@@ -35,3 +37,20 @@ def test_python_repl_no_stdout_returns_actionable_hint() -> None:
 
     assert "Execution success (no stdout)." in output
     assert "print(...)" in output
+
+
+def test_read_file_accepts_pipe_suffix_and_project_relative_path(tmp_path: Path) -> None:
+    target = tmp_path / "main.py"
+    target.write_text("print('hello')\n", encoding="utf-8")
+    tools = ToolBox(data_dir=str(tmp_path / "data"))
+
+    current = Path.cwd()
+    try:
+        import os
+
+        os.chdir(tmp_path)
+        output = tools.read_file("main.py|content")
+    finally:
+        os.chdir(current)
+
+    assert "print('hello')" in output
