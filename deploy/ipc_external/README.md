@@ -1,7 +1,22 @@
-# IPC/External Dev Deployment
+# IPC / External Dev Deployment
 
-This folder is for running CoALA on an IPC or external development machine with Docker,
-while the LLM inference stays on your high-compute PC.
+This mode is for development outside the IPC while preserving the same
+architecture boundary:
+
+- the network and inference chain stays externalized
+- the CoALA container only sees a stable local endpoint from `coala.env`
+
+Use this mode when you want to iterate on CoALA behavior from another machine
+without changing the field deployment topology.
+
+## Assumption
+
+Your development machine can already reach the forwarded model endpoint, and
+that endpoint behaves like a local OpenAI-compatible service.
+
+Default example:
+
+- `http://127.0.0.1:18081/v1`
 
 ## 1) Prepare environment
 
@@ -11,11 +26,12 @@ cp deploy/ipc_external/coala.env.example deploy/ipc_external/coala.env
 
 Edit `deploy/ipc_external/coala.env`:
 
-- `COALA_LOCAL_API_BASE` should point to your forwarded local endpoint.
-  - Current default: `http://127.0.0.1:18081/v1`
-- `COALA_LOCAL_ASYNC_ENABLED=true` is recommended when endpoint is over FRP.
-- Ensure model host runs `scripts/local_async_gateway.py` and FRP forwards gateway port.
-- If you need remote large model, set `QWEN_API_KEY`.
+- `COALA_LOCAL_API_BASE`
+  - point this to the endpoint already exposed on the development machine
+- `COALA_LOCAL_ASYNC_ENABLED=true`
+  - recommended when the upstream path crosses FRP
+- `QWEN_API_KEY`
+  - only needed if you want remote large-model fallback
 
 ## 2) Start dev container
 
@@ -23,16 +39,12 @@ Edit `deploy/ipc_external/coala.env`:
 bash deploy/ipc_external/devctl.sh up
 ```
 
-## 3) Develop / run
+## 3) Develop and run
 
 ```bash
-# Open shell
+bash deploy/ipc_external/devctl.sh health
 bash deploy/ipc_external/devctl.sh shell
-
-# Run CLI agent
 bash deploy/ipc_external/devctl.sh run
-
-# Run tests
 bash deploy/ipc_external/devctl.sh test
 ```
 
@@ -42,8 +54,10 @@ bash deploy/ipc_external/devctl.sh test
 bash deploy/ipc_external/devctl.sh down
 ```
 
-## Quick connectivity check
+## Boundary reminder
 
-```bash
-bash deploy/ipc_external/devctl.sh health
-```
+If you are changing prompts, routing, memory, skills, or the web console, work
+in the regular CoALA modules.
+
+If you are changing ports, FRP exposure, async job submission, or host-to-host
+forwarding, work in the network / inference chain files instead.

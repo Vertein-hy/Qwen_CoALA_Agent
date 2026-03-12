@@ -1,15 +1,18 @@
-# Web Console (IPC + FRP STCP)
+# Web Console
 
-This console provides:
+The web console is part of the CoALA runtime layer, not the network layer.
+
+Its purpose is:
 
 - chat with `CognitiveAgent`
-- skill index and `custom_skills.py` inspection
-- skill/memory event log inspection
-- skill code validation API
+- inspect internalized skills
+- inspect skill and memory event logs
+- validate candidate skill code
 
-It is designed to be isolated from model gateway/networking code.
+It should stay isolated from FRP topology, gateway internals, and host-to-host
+transport logic.
 
-## 1) Start service on IPC
+## Start service on IPC
 
 ```bash
 cd /dockerdata/Qwen_CoALA_Agent
@@ -23,23 +26,35 @@ Default bind:
 - `COALA_WEB_HOST=127.0.0.1`
 - `COALA_WEB_PORT=7860`
 
-## 2) Access from Windows via FRP STCP
+## Access from Windows via FRP STCP
 
-You already use STCP and connect from MobaXterm to `127.0.0.1 (pc)`.
-Add one more STCP forwarding pair for the web console:
+Keep the service local to IPC and expose it through a separate STCP pair.
+
+Example:
 
 - IPC local service: `127.0.0.1:7860`
-- PC visitor local bind: `127.0.0.1:<your_port>` (for example `17860`)
+- Windows visitor bind: `127.0.0.1:17860`
 
-Then open on PC browser:
+Then open:
 
 - `http://127.0.0.1:17860/`
 
-## 3) Useful APIs
+## Useful APIs
 
 - `GET /api/health`
-- `POST /api/chat` body: `{"message":"..."}`
+- `POST /api/chat` with `{"message":"..."}`
 - `GET /api/skills`
 - `GET /api/logs?type=skill&limit=50`
 - `GET /api/logs?type=memory&limit=50`
-- `POST /api/validate-skill` body: `{"code":"def ..."}`
+- `POST /api/validate-skill` with `{"code":"def ..."}`
+
+## Isolation rule
+
+If a change is about:
+
+- ports
+- STCP / FRP
+- host forwarding
+- async gateway topology
+
+it does not belong in the web console.

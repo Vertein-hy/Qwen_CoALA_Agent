@@ -1,36 +1,91 @@
 # Project Structure
 
-This document defines folder responsibilities and isolation boundaries.
+This document defines the communication boundary inside the repository.
 
-## Core runtime
+The rule is simple:
 
-- `core/`: Agent orchestration, routing, model interface, and scoring.
-- `memory/`: Long-term and short-term memory implementations.
-- `modules/`: Tool execution and other runtime modules used by the agent loop.
-- `config/`: Typed settings and prompt templates.
-- `apps/`: Optional app entrypoints/UI (e.g., web console), isolated from gateway.
+- the network / inference chain may change without requiring CoALA logic changes
+- CoALA logic may change without touching FRP, forwarding, or model-host setup
 
-## Skill subsystem (plugin style)
+## Layer 1: Network and inference chain
 
-- `skills/manager.py`: Entry point for skill validation and persistence.
-- `skills/validator.py`: Static safety/readability validation for generated skills.
-- `skills/catalog.py`: Metadata index for persisted skills (`index.json`).
-- `skills/selector.py`: Rank existing skills for current user task.
-- `skills/event_logger.py`: Skill selection/call telemetry JSONL logs.
-- `skills/runtime_loader.py`: Controlled runtime plugin loader.
-- `skills/internalized/`: Generated skill code and metadata index.
+These files own connectivity and model exposure. They should absorb network
+complexity so the rest of the project only sees one stable local endpoint.
 
-## Deployment and communication boundary
+- `scripts/local_async_gateway.py`
+  - async wrapper for long FRP paths
+- `scripts/cloud_397b_service.py`
+  - standalone gateway for remote large model access
+- `docker-compose.ipc.yml`
+  - IPC runtime composition using host network
+- `docker-compose.cloud.yml`
+  - cloud gateway composition
+- `deploy/ipc_external/`
+  - external-machine Docker dev workflow
+- `docs/IPC_FRP_QUICKSTART.md`
+- `docs/LOCAL_ASYNC_GATEWAY.md`
+- `docs/CLOUD_397B_SERVICE.md`
 
-- `scripts/local_async_gateway.py`: Local async gateway used for host/device communication.
-- `deploy/`: Docker and external deployment templates.
-- `docker-compose*.yml`: Runtime composition for IPC/cloud/dev modes.
+Boundary contract:
 
-Important: keep communication-facing code isolated. For agent logic iterations,
-prefer changes in `core/`, `skills/`, `memory/`, and `modules/` only.
+- expose a local OpenAI-compatible API
+- preferred local address on IPC: `http://127.0.0.1:18081/v1`
+- CoALA runtime should not need to know whether the upstream is Mac, 5070Ti,
+  FRP, STCP, llama.cpp, or a remote gateway
 
-## Data and tests
+## Layer 2: CoALA runtime and iteration surface
 
-- `data/`: Evaluation sets and runtime data artifacts.
-- `tests/`: Unit/integration tests for runtime behavior.
-- `docs/`: Operations and architecture docs.
+These files own agent behavior and are the primary place for day-to-day
+development.
+
+- `core/`
+  - agent orchestration, routing, provider abstraction
+- `memory/`
+  - memory storage and retrieval
+- `modules/`
+  - tools, actions, perception, emotion helpers
+- `skills/`
+  - validation, storage, ranking, runtime loading, telemetry
+- `config/`
+  - typed settings and prompts
+- `apps/web_console/`
+  - isolated inspection and chat UI for IPC operations
+
+Safe iteration rule:
+
+- prefer changes here when tuning prompts, behavior, skills, memory, scoring,
+  or UI
+- avoid coupling these modules to FRP topology or host-specific addresses
+
+## Layer 3: Data and verification
+
+- `data/`
+  - eval sets and runtime data
+- `tests/`
+  - behavior verification
+- `docs/`
+  - operations and architecture notes
+
+## Deployment mapping
+
+### 5070Ti or model host
+
+- serves the model
+- may run the async gateway
+- should not be the default place for CoALA behavior development
+
+### IPC
+
+- receives the forwarded model endpoint
+- runs CoALA and the web console
+- is the default target for operational deployment
+
+### Windows dev machine
+
+- edits code and prepares sync bundles
+- may run external Docker dev containers
+
+### Alibaba Cloud relay
+
+- stays a transport layer
+- should not carry CoALA runtime state
