@@ -8,6 +8,24 @@
 
 ## 2026-03-12
 
+### `2026-03-12T17:30:00+08:00` `perf: make python_repl no-stdout feedback actionable`
+
+更新了什么
+
+- 优化 `python_repl` 在无 stdout 时的返回值
+- 不再只返回空泛的成功信息，而是提示模型使用 `print(...)` 获取可见结果
+- 新增无 stdout 回归测试
+- 全量测试通过：`pytest -q` -> `49 passed in 1.18s`
+
+对应文档
+
+- `docs/UPDATE_LOG.md`
+
+对应代码位置
+
+- `modules/tools.py`
+- `tests/test_tools.py`
+
 ### `2026-03-12T17:20:00+08:00` `fix: execute triple-quoted python_repl inputs`
 
 更新了什么

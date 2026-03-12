@@ -134,7 +134,9 @@ class ToolBox:
             with contextlib.redirect_stdout(output_buffer):
                 exec(cleaned, self.python_state)
             output = output_buffer.getvalue().strip()
-            return output if output else "Execution success (no stdout)."
+            if output:
+                return output
+            return "Execution success (no stdout). If you need a visible result, use print(...)."
         except Exception as exc:  # noqa: BLE001
             return f"Python Error: {exc}"
 

@@ -26,3 +26,12 @@ def test_python_repl_executes_fenced_code_block() -> None:
     )
 
     assert output == "ok"
+
+
+def test_python_repl_no_stdout_returns_actionable_hint() -> None:
+    tools = ToolBox(data_dir="tests_runtime/tools_case")
+
+    output = tools.python_repl("value = 7")
+
+    assert "Execution success (no stdout)." in output
+    assert "print(...)" in output
