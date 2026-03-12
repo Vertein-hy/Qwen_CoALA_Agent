@@ -1,4 +1,4 @@
-"""Cognitive agent orchestration."""
+﻿"""Cognitive agent orchestration."""
 
 from __future__ import annotations
 
@@ -11,8 +11,10 @@ from core.agent_prompt_builder import AgentPromptBuilder
 from core.context_compactor import LoopContextCompactor
 from core.evolution import SkillEvolver
 from core.llm_interface import LLMInterface
+from core.loop_guard import LoopGuard
 from core.react_parser import ReActParser
 from core.scorer import RuleBasedScorer
+from core.skill_routing import DirectSkillCall, SkillRouter
 from core.tool_lifecycle_runtime import ToolLifecycleRuntime
 from memory.vector_store import MemorySystem
 from memory.working_memory import WorkingMemory
@@ -105,6 +107,10 @@ class CognitiveAgent:
             keep_recent_messages=self.config.agent.keep_recent_messages,
             compress_trigger=self.config.agent.compact_history_trigger,
         )
+        loop_guard = LoopGuard(
+            repeated_response_limit=self.config.agent.repeated_response_limit,
+            repeated_tool_cycle_limit=self.config.agent.repeated_tool_cycle_limit,
+        )
         loop_compactor.start_run(goal=user_input, tool_matches=tool_matches)
 
         mood = self.emotion_engine.update_mood(user_input, related_memories)
@@ -122,6 +128,21 @@ class CognitiveAgent:
         tool_steps = 0
         active_contract: ToolSpec | None = None
 
+        direct_skill_call = SkillRouter.infer_direct_skill_call(
+            user_input=user_input,
+            candidates=skill_candidates,
+        )
+        if direct_skill_call is not None:
+            return self._finalize_direct_skill_call(
+                user_input=user_input,
+                direct_skill_call=direct_skill_call,
+                trace_id=trace_id,
+                related_memories=related_memories,
+                tool_context=tool_context,
+                loop_compactor=loop_compactor,
+                messages=messages,
+            )
+
         for _ in range(self.config.agent.max_steps):
             messages_for_model = self._prepare_messages_for_model(
                 messages=messages,
@@ -138,11 +159,24 @@ class CognitiveAgent:
                 route_hint="auto",
             )
             response = llm_result.content
+            if loop_guard.record_response(response):
+                return self._finalize_fallback(
+                    user_input=user_input,
+                    response="任务已停止：模型重复输出相同内容且没有新进展。请改用其他工具、修正 Tool Spec，或直接给出最终答案。",
+                    trace_id=trace_id,
+                    related_memories=related_memories,
+                    tool_steps=tool_steps,
+                    tool_context=tool_context,
+                    active_contract=active_contract,
+                    messages=messages,
+                    route=llm_result.route,
+                    model_name=llm_result.model_name,
+                )
 
             action = ReActParser.parse_action(response)
             if action:
                 tool_steps += 1
-                self._handle_action_step(
+                observation = self._handle_action_step(
                     action_name=action.tool_name,
                     action_input=action.tool_input,
                     trace_id=trace_id,
@@ -150,6 +184,42 @@ class CognitiveAgent:
                     loop_compactor=loop_compactor,
                     messages=messages,
                 )
+                if loop_guard.record_tool_cycle(
+                    tool_name=action.tool_name,
+                    tool_input=action.tool_input,
+                    observation=observation,
+                ):
+                    return self._finalize_fallback(
+                        user_input=user_input,
+                        response="任务已停止：重复执行同一工具且没有新进展。请修正工具输入、改用其他工具，或直接输出最终答案。",
+                        trace_id=trace_id,
+                        related_memories=related_memories,
+                        tool_steps=tool_steps,
+                        tool_context=tool_context,
+                        active_contract=active_contract,
+                        messages=messages,
+                        route=llm_result.route,
+                        model_name=llm_result.model_name,
+                    )
+                if SkillRouter.should_finalize_from_observation(
+                    user_input=user_input,
+                    action_name=action.tool_name,
+                    observation=observation,
+                ):
+                    return self._finalize_success(
+                        user_input=user_input,
+                        response=f"Final Answer: {observation}",
+                        final_answer=observation,
+                        trace_id=trace_id,
+                        related_memories=related_memories,
+                        tool_steps=tool_steps,
+                        tool_context=tool_context,
+                        active_contract=active_contract,
+                        loop_compactor=loop_compactor,
+                        messages=messages,
+                        route=llm_result.route,
+                        model_name=llm_result.model_name,
+                    )
                 continue
 
             tool_spec = ToolLifecycleParser.parse_tool_spec(response)
@@ -268,7 +338,7 @@ class CognitiveAgent:
         tool_context: ProjectToolContext,
         loop_compactor: LoopContextCompactor,
         messages: list[dict[str, str]],
-    ) -> None:
+    ) -> str:
         action_started = time.perf_counter()
         loop_compactor.record_action(action_name, action_input)
         is_internalized_skill = self.skill_selector.has_skill(action_name)
@@ -321,6 +391,7 @@ class CognitiveAgent:
             }
         )
         messages.append({"role": "user", "content": f"Observation: {observation}"})
+        return observation
 
     def _finalize_success(
         self,
@@ -477,6 +548,40 @@ class CognitiveAgent:
 
         self.working_memory.add_message("assistant", timeout_response)
         return timeout_response
+
+    def _finalize_direct_skill_call(
+        self,
+        *,
+        user_input: str,
+        direct_skill_call: DirectSkillCall,
+        trace_id: str,
+        related_memories: list[str],
+        tool_context: ProjectToolContext,
+        loop_compactor: LoopContextCompactor,
+        messages: list[dict[str, str]],
+    ) -> str:
+        observation = self._handle_action_step(
+            action_name=direct_skill_call.tool_name,
+            action_input=direct_skill_call.tool_input,
+            trace_id=trace_id,
+            tool_context=tool_context,
+            loop_compactor=loop_compactor,
+            messages=messages,
+        )
+        return self._finalize_success(
+            user_input=user_input,
+            response=f"Final Answer: {observation}",
+            final_answer=observation,
+            trace_id=trace_id,
+            related_memories=related_memories,
+            tool_steps=1,
+            tool_context=tool_context,
+            active_contract=None,
+            loop_compactor=loop_compactor,
+            messages=messages,
+            route="deterministic_skill_router",
+            model_name=direct_skill_call.reason,
+        )
 
     @staticmethod
     def _new_trace_id() -> str:

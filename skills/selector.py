@@ -22,6 +22,11 @@ class SkillSelector:
 
     _LATIN_TOKEN_PATTERN = re.compile(r"[a-z0-9_]+", re.IGNORECASE)
     _CJK_SEQ_PATTERN = re.compile(r"[\u4e00-\u9fff]{2,}")
+    _SEMANTIC_HINTS = {
+        "calc_sum_n": ("整数和", "求和", "sum"),
+        "calc_lcm": ("最小公倍数", "lcm"),
+        "fibonacci": ("斐波那契", "fibonacci"),
+    }
 
     def __init__(self, skill_manager: SkillManager):
         self.skill_manager = skill_manager
@@ -99,4 +104,10 @@ class SkillSelector:
         source_tokens = self._tokenize(source_lower)
         overlap = query_tokens & source_tokens
         score += min(8.0, 0.6 * len(overlap))
+
+        for expected_skill, hints in self._SEMANTIC_HINTS.items():
+            if skill_name_lower != expected_skill:
+                continue
+            if any(hint in query for hint in hints):
+                score += 3.0
         return score

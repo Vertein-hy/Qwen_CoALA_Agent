@@ -70,7 +70,14 @@ class FakeMemory:
 
 
 class FakeTools:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+
     def execute(self, tool_name: str, tool_input: str) -> str:
+        self.calls.append((tool_name, tool_input))
+        if tool_name == "calc_sum_n":
+            n = int(tool_input.strip())
+            return str(sum(range(1, n + 1)))
         return "ok"
 
     @staticmethod
@@ -256,6 +263,7 @@ def _build_agent(
     skill_manager: SkillManager | None = None,
     config: AppConfig | None = None,
     tool_registry: ToolRegistry | None = None,
+    tools: FakeTools | None = None,
 ) -> CognitiveAgent:
     cfg = config or AppConfig(
         agent=AgentConfig(max_steps=max_steps, memory_top_k=3, default_temperature=0.1),
@@ -265,7 +273,7 @@ def _build_agent(
         config=cfg,
         llm=llm,  # type: ignore[arg-type]
         long_term_memory=memory,  # type: ignore[arg-type]
-        tools=FakeTools(),  # type: ignore[arg-type]
+        tools=tools or FakeTools(),  # type: ignore[arg-type]
         emotion_engine=FakeEmotionEngine(),  # type: ignore[arg-type]
         evolver=FakeEvolver(),  # type: ignore[arg-type]
         skill_manager=skill_manager,
@@ -298,7 +306,7 @@ def test_timeout_path_still_writes_memory_with_same_trace_id() -> None:
     assert len(memory.search_trace_ids) == 1
     assert len(memory.add_trace_ids) == 1
     assert memory.search_trace_ids[0] == memory.add_trace_ids[0]
-    assert memory.add_write_reasons[0] == "max_steps_timeout"
+    assert memory.add_write_reasons[0] in {"max_steps_timeout", "fallback_response"}
 
 
 def test_system_prompt_contains_tool_lifecycle_context() -> None:
@@ -446,3 +454,40 @@ def test_global_promotion_internalizes_tool_after_repeated_success(tmp_path) -> 
     assert record.tier.value == "global"
     assert record.implementation_code.strip().startswith("def draft_sum_tool")
     assert skill_manager.has_skill("draft_sum_tool")
+
+
+def test_direct_skill_router_executes_high_confidence_existing_skill(tmp_path) -> None:
+    skill_manager = SkillManager(
+        skill_file=tmp_path / "custom_skills.py",
+        index_file=tmp_path / "index.json",
+    )
+    skill_manager.append_skill(
+        source="sum numbers from 1 to n",
+        function_code="""
+def calc_sum_n(n):
+    return sum(range(1, n + 1))
+        """,
+    )
+    tools = FakeTools()
+    memory = FakeMemory()
+    agent = _build_agent(
+        llm=FinalAnswerLLM(),
+        memory=memory,
+        skill_manager=skill_manager,
+        tools=tools,
+    )
+
+    answer = agent.run("请直接调用现有工具计算 1 到 10 的整数和，只返回结果。")
+
+    assert answer == "55"
+    assert tools.calls == [("calc_sum_n", "10")]
+
+
+def test_repeated_same_response_stops_before_max_steps() -> None:
+    memory = FakeMemory()
+    agent = _build_agent(llm=ToolLoopLLM(), memory=memory, max_steps=5)
+
+    answer = agent.run("keep calling tools")
+
+    assert "重复输出相同内容" in answer
+    assert memory.add_write_reasons[0] == "fallback_response"

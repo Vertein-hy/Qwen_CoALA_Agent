@@ -76,11 +76,11 @@ class RoutingConfig:
 
     complexity_threshold: int = 3
     force_large_keywords: tuple[str, ...] = (
+        "规划",
         "架构",
-        "重构",
-        "优化方案",
-        "多步骤",
-        "推导",
+        "复杂设计",
+        "多步骤推理",
+        "证明",
         "proof",
         "benchmark",
         "safety",
@@ -111,6 +111,8 @@ class AgentConfig:
     default_top_k: int | None = None
     default_max_tokens: int = 1024
     default_seed: int | None = None
+    repeated_response_limit: int = 2
+    repeated_tool_cycle_limit: int = 2
 
 
 @dataclass(frozen=True)
@@ -195,7 +197,7 @@ def load_config() -> AppConfig:
             x.strip()
             for x in os.getenv(
                 "COALA_FORCE_LARGE_KEYWORDS",
-                "架构,重构,优化方案,多步骤,推导,proof,benchmark,safety",
+                "规划,架构,复杂设计,多步骤推理,证明,proof,benchmark,safety",
             ).split(",")
             if x.strip()
         ),
@@ -230,6 +232,12 @@ def load_config() -> AppConfig:
         default_top_k=_optional_int_from_env("COALA_AGENT_TOP_K"),
         default_max_tokens=int(os.getenv("COALA_AGENT_MAX_TOKENS", "1024")),
         default_seed=_optional_int_from_env("COALA_AGENT_SEED"),
+        repeated_response_limit=int(
+            os.getenv("COALA_AGENT_REPEATED_RESPONSE_LIMIT", "2")
+        ),
+        repeated_tool_cycle_limit=int(
+            os.getenv("COALA_AGENT_REPEATED_TOOL_CYCLE_LIMIT", "2")
+        ),
     )
 
     skills = SkillConfig(

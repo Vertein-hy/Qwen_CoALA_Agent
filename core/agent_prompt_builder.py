@@ -42,11 +42,7 @@ class AgentPromptBuilder:
         loop_brief: str,
     ) -> str:
         template = self.prompts.get("system_persona", self._default_system_template())
-        memories_text = (
-            "\n".join(f"- {item}" for item in memories)
-            if memories
-            else "[暂无相关记忆]"
-        )
+        memories_text = "\n".join(f"- {item}" for item in memories) if memories else "[无相关记忆]"
         base_prompt = template.format(
             mood=mood,
             tool_desc=tool_desc,
@@ -82,15 +78,22 @@ class AgentPromptBuilder:
     @staticmethod
     def _default_system_template() -> str:
         return (
-            "你是 CoALA Agent，负责协调记忆、工具和技能完成任务。\n"
-            "当前情绪: {mood}\n\n"
+            "你是 CoALA Agent。你的目标是稳定完成任务，而不是展示冗长思考。\n"
+            "当前情绪状态: {mood}\n\n"
             "[可用工具]\n{tool_desc}\n\n"
             "[相关记忆]\n{memories}\n\n"
-            "请始终按照 ReAct 格式推理：\n"
-            "Thought: ...\n"
+            "[输出协议]\n"
+            "每次回复只能选择以下三种格式之一，不要混用：\n"
+            "1. 工具调用:\n"
+            "Thought: <一句简短理由>\n"
             "Action: <tool_name>\n"
             "Action Input: <tool_input>\n"
-            "Observation: <tool_output>\n"
+            "2. 工具契约:\n"
+            "```tool_spec\n"
+            "{{\"name\":\"...\",\"purpose\":\"...\",\"inputs\":[...],\"outputs\":[...],"
+            "\"side_effects\":[...],\"failure_modes\":[...],\"examples\":[...]}}\n"
+            "```\n"
+            "3. 最终答复:\n"
             "Final Answer: <answer>\n"
         )
 
@@ -99,10 +102,12 @@ class AgentPromptBuilder:
         if language in {"zh", "zh-cn", "zh-hans", "chinese"}:
             return (
                 f"{prompt}\n\n"
-                "[语言要求]\n"
-                "1. 默认使用简体中文回答，除非用户明确要求其他语言。\n"
-                "2. 术语、代码、路径、变量名保持原样，不要强行翻译。\n"
-                "3. 需要英文关键字时，先给结论，再保留关键英文标识。\n"
+                "[执行约束]\n"
+                "1. 优先复用已有工具；仅在确认没有合适工具时再定义 Tool Spec。\n"
+                "2. 每轮最多调用一个工具，不要在同一条消息里输出多个 Action。\n"
+                "3. Tool Spec 必须输出为 fenced ```tool_spec``` JSON，不要写自然语言伪 JSON。\n"
+                "4. 收到确定性 Observation 后，如果已经足够回答用户，就直接输出 Final Answer。\n"
+                "5. 不要重复输出相同的 Action、相同的 Tool Spec 或相同的解释。\n"
             )
         return prompt
 
@@ -117,8 +122,8 @@ class AgentPromptBuilder:
         lines = [
             prompt,
             "",
-            "[候选内部技能]",
-            "优先考虑复用已有技能；如果技能不匹配，再考虑 `python_repl` 或新建 Tool Spec。",
+            "[候选技能]",
+            "下面是当前任务最相关的已有技能。若其中某个技能能直接完成任务，应优先调用它，不要改写为其他工具名。",
         ]
         for idx, item in enumerate(candidates, 1):
             lines.append(
@@ -136,15 +141,15 @@ class AgentPromptBuilder:
         lines = [
             prompt,
             "",
-            "[项目工具上下文]",
-            f"任务: {tool_context.task_summary or '(empty)'}",
-            "策略: 先复用，再定义 Tool Spec，再在受阻时向大模型发结构化求助。",
+            "[工具生命周期上下文]",
+            f"当前任务: {tool_context.task_summary or '(empty)'}",
+            "规则: 先判断已有工具是否匹配当前任务的目标、输入、输出；只有在确实缺失时才定义新的 Tool Spec。",
         ]
 
         if tool_context.existing_tools:
-            lines.append(f"已知工具: {', '.join(tool_context.existing_tools)}")
+            lines.append(f"现有工具: {', '.join(tool_context.existing_tools)}")
         else:
-            lines.append("已知工具: (none)")
+            lines.append("现有工具: (none)")
 
         if tool_matches:
             lines.append("")
@@ -169,12 +174,12 @@ class AgentPromptBuilder:
             lines.extend(
                 [
                     "",
-                    "[工具构建要求]",
-                    "如果没有合适工具，先输出一个 fenced ```tool_spec``` JSON。",
-                    "Tool Spec 至少包含: name, purpose, inputs, outputs, side_effects, failure_modes, examples。",
-                    "如果自己无法补全，再按结构化方式向大模型求助。",
-                    f"求助类型: {teacher_request.kind.value}",
-                    f"期望返回: {teacher_request.requested_output}",
+                    "[缺少合适工具时的要求]",
+                    "请输出 fenced ```tool_spec``` JSON。",
+                    "Tool Spec 至少必须包含: name, purpose, inputs, outputs, side_effects, failure_modes, examples。",
+                    "如果你无法补全这些字段，请先输出不完整 Tool Spec，让系统向大模型请求修复。",
+                    f"必要时的求助类型: {teacher_request.kind.value}",
+                    f"期望求助输出: {teacher_request.requested_output}",
                 ]
             )
 
