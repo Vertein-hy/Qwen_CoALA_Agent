@@ -122,9 +122,9 @@ Current integration status:
 - incomplete contracts can escalate to the larger model for structured repair
 - repaired contracts can be persisted in the tool registry
 - execution history can update promotion tier
+- globally promoted tools with validated implementation code can be internalized into `skills/internalized/`
+- project identity can be injected with `COALA_PROJECT_ID`, otherwise it falls back to current working directory name
 
 Still not implemented:
 
-- automatic conversion from promoted `ToolSpec` to final Python skill code
-- project-aware `project_id` derivation from workspace boundaries
 - richer latency and cost accounting for non-skill tool runs

@@ -74,6 +74,11 @@ class ToolRegistry:
             spec=spec,
             enabled=True,
             notes=notes,
+            implementation_code=(
+                str(existing.get("implementation_code", ""))
+                if isinstance(existing, dict)
+                else ""
+            ),
         )
         filtered = [item for item in records if item.get("name") != spec.name]
         filtered.append(self._record_to_dict(record))
@@ -90,6 +95,39 @@ class ToolRegistry:
         payload["executions"] = executions
         payload.setdefault("tools", [])
         self._write_raw(payload)
+
+    def attach_implementation(self, tool_name: str, function_code: str) -> ToolRegistryRecord | None:
+        payload = self._read_raw()
+        updated = False
+        result: ToolRegistryRecord | None = None
+        records: list[dict] = []
+        for raw in payload.get("tools", []):
+            if raw.get("name") != tool_name:
+                records.append(raw)
+                continue
+            parsed = self._parse_record(raw)
+            if parsed is None:
+                continue
+            updated_record = ToolRegistryRecord(
+                name=parsed.name,
+                project_id=parsed.project_id,
+                source=parsed.source,
+                origin=parsed.origin,
+                tier=parsed.tier,
+                created_at=parsed.created_at,
+                updated_at=datetime.now(timezone.utc).isoformat(),
+                spec=parsed.spec,
+                enabled=parsed.enabled,
+                notes=self._merge_notes(parsed.notes, "implementation_attached"),
+                implementation_code=function_code.strip(),
+            )
+            records.append(self._record_to_dict(updated_record))
+            updated = True
+            result = updated_record
+        if updated:
+            payload["tools"] = records
+            self._write_raw(payload)
+        return result
 
     def executions_for(self, tool_name: str) -> list[ToolExecutionRecord]:
         payload = self._read_raw()
@@ -139,6 +177,7 @@ class ToolRegistry:
                 spec=parsed.spec,
                 enabled=parsed.enabled,
                 notes=self._merge_notes(parsed.notes, note),
+                implementation_code=parsed.implementation_code,
             )
             records.append(self._record_to_dict(upgraded))
             updated = True
@@ -182,6 +221,7 @@ class ToolRegistry:
             spec=spec,
             enabled=bool(raw.get("enabled", True)),
             notes=self._parse_str_tuple(raw.get("notes")),
+            implementation_code=str(raw.get("implementation_code", "")),
         )
 
     def _record_to_dict(self, record: ToolRegistryRecord) -> dict:

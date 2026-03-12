@@ -100,6 +100,7 @@ class MemoryConfig:
 class AgentConfig:
     """Runtime behavior configuration for the agent loop."""
 
+    project_id: str = ""
     max_steps: int = 5
     memory_top_k: int = 3
     response_language: str = "zh-CN"
@@ -214,6 +215,7 @@ def load_config() -> AppConfig:
     )
 
     agent = AgentConfig(
+        project_id=os.getenv("COALA_PROJECT_ID", "").strip(),
         max_steps=int(os.getenv("COALA_AGENT_MAX_STEPS", "5")),
         memory_top_k=int(os.getenv("COALA_AGENT_MEMORY_TOP_K", "3")),
         response_language=os.getenv("COALA_AGENT_RESPONSE_LANGUAGE", "zh-CN"),

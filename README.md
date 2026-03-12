@@ -69,6 +69,15 @@ Responsible for agent behavior, memory, tools, skills, and inspection UI.
 - Communication boundary: `PROJECT_STRUCTURE.md`
 - Web console: `docs/WEB_CONSOLE.md`
 - Update log: `docs/UPDATE_LOG.md`
+- Entrypoints: `docs/ENTRYPOINTS.md`
+- Test matrix: `docs/TEST_MATRIX.md`
+- Docs index: `docs/DOCS_INDEX.md`
+
+## Entrypoints
+
+- CLI: `python main.py`
+- Web console: `python apps/web_console/server.py`
+- Tests: `python scripts/run_tests.py --suite all`
 
 ## Packaging
 

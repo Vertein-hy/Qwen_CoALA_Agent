@@ -178,6 +178,7 @@ class ToolRegistryRecord:
     spec: ToolSpec
     enabled: bool = True
     notes: tuple[str, ...] = ()
+    implementation_code: str = ""
 
 
 @dataclass

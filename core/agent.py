@@ -242,8 +242,17 @@ class CognitiveAgent:
                     user_input=user_input,
                     response_text=response,
                     trace_id=trace_id,
+                    protected_skill_names=(
+                        (active_contract.name,) if active_contract is not None else ()
+                    ),
                 )
                 if active_contract is not None:
+                    self._maybe_capture_contract_implementation(
+                        messages=messages,
+                        response_text=response,
+                        active_contract=active_contract,
+                        trace_id=trace_id,
+                    )
                     self._record_contract_outcome(
                         tool_spec=active_contract,
                         project_id=tool_context.project_id,
@@ -289,8 +298,15 @@ class CognitiveAgent:
                 user_input=user_input,
                 response_text=response,
                 trace_id=trace_id,
+                protected_skill_names=((active_contract.name,) if active_contract is not None else ()),
             )
             if active_contract is not None:
+                self._maybe_capture_contract_implementation(
+                    messages=messages,
+                    response_text=response,
+                    active_contract=active_contract,
+                    trace_id=trace_id,
+                )
                 self._record_contract_outcome(
                     tool_spec=active_contract,
                     project_id=tool_context.project_id,
@@ -317,6 +333,12 @@ class CognitiveAgent:
             score_snapshot=score.as_dict(),
         )
         if active_contract is not None:
+            self._maybe_capture_contract_implementation(
+                messages=messages,
+                response_text="",
+                active_contract=active_contract,
+                trace_id=trace_id,
+            )
             self._record_contract_outcome(
                 tool_spec=active_contract,
                 project_id=tool_context.project_id,
@@ -579,8 +601,9 @@ class CognitiveAgent:
         return f"{prompt}\n\n{loop_brief}"
 
     def _build_project_tool_context(self, user_input: str) -> ProjectToolContext:
+        project_id = self.config.agent.project_id.strip() or Path.cwd().name or "active-session"
         return ProjectToolContext(
-            project_id="active-session",
+            project_id=project_id,
             task_summary=user_input.strip(),
             available_inputs=("user_request", "memory_context"),
             desired_outputs=("final_answer",),
@@ -659,6 +682,7 @@ class CognitiveAgent:
         self.tool_registry.add_execution(execution)
         decision = self.tool_promotion.decide(self.tool_registry.executions_for(tool_spec.name))
         upgraded = self.tool_registry.apply_promotion(tool_spec.name, decision)
+        self._maybe_internalize_promoted_tool(tool_name=tool_spec.name, decision=decision, trace_id=trace_id)
         self.skill_event_logger.log(
             "tool_promotion_evaluated",
             trace_id,
@@ -673,12 +697,98 @@ class CognitiveAgent:
             },
         )
 
+    def _maybe_capture_contract_implementation(
+        self,
+        *,
+        messages: list[dict[str, str]],
+        response_text: str,
+        active_contract: ToolSpec,
+        trace_id: str,
+    ) -> None:
+        for candidate in self._collect_code_from_messages(messages):
+            validation = self.skill_manager.validate(candidate)
+            if not validation.is_valid or not validation.function_name:
+                continue
+            if validation.function_name != active_contract.name:
+                continue
+            attached = self.tool_registry.attach_implementation(
+                active_contract.name,
+                validation.normalized_code.strip(),
+            )
+            if attached is not None:
+                self.skill_event_logger.log(
+                    "tool_implementation_attached",
+                    trace_id,
+                    {
+                        "tool_name": active_contract.name,
+                        "source": "messages",
+                    },
+                )
+                return
+
+        for candidate in self._collect_code_candidates(response_text):
+            validation = self.skill_manager.validate(candidate)
+            if not validation.is_valid or not validation.function_name:
+                continue
+            if validation.function_name != active_contract.name:
+                continue
+            attached = self.tool_registry.attach_implementation(
+                active_contract.name,
+                validation.normalized_code.strip(),
+            )
+            if attached is not None:
+                self.skill_event_logger.log(
+                    "tool_implementation_attached",
+                    trace_id,
+                    {
+                        "tool_name": active_contract.name,
+                        "source": "response",
+                    },
+                )
+                return
+
+    def _maybe_internalize_promoted_tool(
+        self,
+        *,
+        tool_name: str,
+        decision: object,
+        trace_id: str,
+    ) -> None:
+        if getattr(decision, "tier", None) != PromotionTier.GLOBAL or not getattr(
+            decision, "should_promote", False
+        ):
+            return
+        if self.skill_manager.has_skill(tool_name):
+            return
+        record = self.tool_registry.get_record(tool_name)
+        if record is None or not record.implementation_code.strip():
+            return
+        try:
+            skill_name = self.skill_manager.append_skill(
+                source=record.source or record.spec.purpose,
+                function_code=record.implementation_code,
+            )
+        except ValueError as exc:
+            self.skill_event_logger.log(
+                "tool_internalize_failed",
+                trace_id,
+                {"tool_name": tool_name, "reason": str(exc)[:200]},
+            )
+            return
+        self.skill_event_logger.log(
+            "tool_internalized_from_registry",
+            trace_id,
+            {"tool_name": tool_name, "skill_name": skill_name},
+        )
+        self._reload_tool_runtime_state()
+
     def _try_evolve(
         self,
         messages: list[dict[str, str]],
         user_input: str,
         response_text: str,
         trace_id: str,
+        protected_skill_names: tuple[str, ...] = (),
     ) -> None:
         candidates: list[str] = []
 
@@ -708,6 +818,13 @@ class CognitiveAgent:
 
             validation = self.skill_manager.validate(normalized)
             if validation.is_valid and validation.function_name:
+                if validation.function_name in protected_skill_names:
+                    self.skill_event_logger.log(
+                        "skill_internalize_deferred",
+                        trace_id,
+                        {"skill_name": validation.function_name, "reason": "contract_managed"},
+                    )
+                    continue
                 if self.skill_manager.has_skill(validation.function_name):
                     self.skill_event_logger.log(
                         "skill_internalize_skipped_existing",
@@ -767,4 +884,18 @@ class CognitiveAgent:
         idx = text.find(marker)
         if idx >= 0:
             out.append(text[idx:].strip())
+        return out
+
+    @staticmethod
+    def _collect_code_from_messages(messages: list[dict[str, str]]) -> list[str]:
+        out: list[str] = []
+        for msg in reversed(messages):
+            if msg.get("role") != "assistant":
+                continue
+            content = msg.get("content", "")
+            action = ReActParser.parse_action(content)
+            if action and action.tool_name == "python_repl":
+                code = action.tool_input.strip()
+                if code:
+                    out.append(code)
         return out

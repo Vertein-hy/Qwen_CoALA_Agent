@@ -204,6 +204,51 @@ class ContextCompressionLLM:
         )
 
 
+@dataclass
+class GlobalPromotionLLM:
+    small_responses: list[str] = field(
+        default_factory=lambda: [
+            """```tool_spec
+{"name":"draft_sum_tool","purpose":"","inputs":[{"name":"n","type_name":"int"}],"outputs":[{"name":"result","type_name":"int"}]}
+```""",
+            (
+                "```python\n"
+                "def draft_sum_tool(n):\n"
+                '    """Return the sum from 1 to n."""\n'
+                "    return sum(range(1, n + 1))\n"
+                "```\n"
+                "Final Answer: tool ready"
+            ),
+        ]
+    )
+    large_responses: list[str] = field(
+        default_factory=lambda: [
+            """```tool_spec
+{"name":"draft_sum_tool","purpose":"Return the sum from 1 to n.","inputs":[{"name":"n","type_name":"int","required":true}],"outputs":[{"name":"result","type_name":"int","required":true}],"failure_modes":["invalid_n"],"examples":["n=5 -> 15"]}
+```
+Repair complete."""
+        ]
+    )
+
+    def chat_with_meta(
+        self,
+        messages: list[dict[str, str]],
+        temperature: float | None = None,
+        route_hint: str = "auto",
+    ) -> ChatResult:
+        if route_hint == "large":
+            return ChatResult(
+                content=self.large_responses.pop(0),
+                model_name="large-model",
+                route="forced_large",
+            )
+        return ChatResult(
+            content=self.small_responses.pop(0),
+            model_name="small-model",
+            route="forced_small",
+        )
+
+
 def _build_agent(
     llm: object,
     memory: FakeMemory,
@@ -364,3 +409,40 @@ def test_agent_compacts_loop_context_for_small_models() -> None:
     last_system = llm.seen_messages[-1][0]["content"]
     assert "[Execution Brief]" in last_system
     assert "finish a long multi-step task without losing the goal" in last_system
+
+
+def test_global_promotion_internalizes_tool_after_repeated_success(tmp_path) -> None:
+    skill_manager = SkillManager(
+        skill_file=tmp_path / "custom_skills.py",
+        index_file=tmp_path / "index.json",
+    )
+    tool_registry = ToolRegistry(index_file=tmp_path / "tool_registry.json")
+
+    def _run(project_id: str) -> str:
+        config = AppConfig(
+            agent=AgentConfig(
+                project_id=project_id,
+                max_steps=4,
+                memory_top_k=3,
+                default_temperature=0.1,
+            ),
+            skills=SkillConfig(enable_event_log=False),
+        )
+        agent = _build_agent(
+            llm=GlobalPromotionLLM(),
+            memory=FakeMemory(),
+            config=config,
+            skill_manager=skill_manager,
+            tool_registry=tool_registry,
+        )
+        return agent.run(f"design a reusable sum tool for {project_id}")
+
+    assert _run("proj-alpha") == "tool ready"
+    assert _run("proj-alpha") == "tool ready"
+    assert _run("proj-beta") == "tool ready"
+
+    record = tool_registry.get_record("draft_sum_tool")
+    assert record is not None
+    assert record.tier.value == "global"
+    assert record.implementation_code.strip().startswith("def draft_sum_tool")
+    assert skill_manager.has_skill("draft_sum_tool")
