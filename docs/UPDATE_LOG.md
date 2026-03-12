@@ -6,6 +6,26 @@
 
 ## 2026-03-12
 
+### `refactor agent coordinator into modules`
+
+更新了什么：
+
+- 将系统提示词拼装从 `core/agent.py` 拆到独立模块
+- 将工具契约、teacher 升级、注册表晋升逻辑从 `core/agent.py` 拆到独立运行时模块
+- `core/agent.py` 回归协调器角色，体量从 800+ 行下降到约 550 行
+- 后续再扩展 prompt 或 tool lifecycle 时，不需要继续修改主协调器
+
+对应文档：
+
+- `docs/UPDATE_LOG.md`
+- `docs/ENTRYPOINTS.md`
+
+对应代码位置：
+
+- `core/agent.py`
+- `core/agent_prompt_builder.py`
+- `core/tool_lifecycle_runtime.py`
+
 ### `promote registered tools and solidify entrypoints`
 
 更新了什么：
