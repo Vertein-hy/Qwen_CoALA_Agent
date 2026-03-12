@@ -8,6 +8,25 @@
 
 ## 2026-03-12
 
+### `2026-03-12T17:35:00+08:00` `fix: stop Action Input before Final Answer`
+
+更新了什么
+
+- 修复 `ReActParser` 对混合响应的解析
+- 当模型在同一条消息中同时输出 `Action Input` 和 `Final Answer` 时，解析器现在会在 `Final Answer:` 前截断工具输入
+- 避免把 markdown、emoji、解释文本误送进 `python_repl`
+- 新增对应回归测试
+- 全量测试通过：`pytest -q` -> `50 passed in 1.18s`
+
+对应文档
+
+- `docs/UPDATE_LOG.md`
+
+对应代码位置
+
+- `core/react_parser.py`
+- `tests/test_react_parser.py`
+
 ### `2026-03-12T17:18:42+08:00` `perf: make python_repl no-stdout feedback actionable`
 
 更新了什么

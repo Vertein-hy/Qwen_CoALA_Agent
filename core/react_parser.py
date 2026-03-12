@@ -15,7 +15,7 @@ class ParsedAction:
 class ReActParser:
     action_pattern = re.compile(r"Action:\s*(.*?)(?:\n|$)", re.IGNORECASE)
     input_pattern = re.compile(
-        r"Action Input:\s*([\s\S]*?)(?:\nObservation:|$)",
+        r"Action Input:\s*([\s\S]*?)(?:\nObservation:|\nFinal Answer:|$)",
         re.IGNORECASE,
     )
 
@@ -30,6 +30,8 @@ class ReActParser:
         tool_input = input_match.group(1).strip()
         if "Observation:" in tool_input:
             tool_input = tool_input.split("Observation:", 1)[0].strip()
+        if "Final Answer:" in tool_input:
+            tool_input = tool_input.split("Final Answer:", 1)[0].strip()
 
         return ParsedAction(tool_name=tool_name, tool_input=tool_input)
 
