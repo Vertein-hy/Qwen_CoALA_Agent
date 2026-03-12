@@ -15,12 +15,14 @@ from skills.tool_contracts import (
     ToolIOField,
     ToolKnowledgeBase,
     ToolMatchResult,
+    ToolRegistryRecord,
     ToolSpec,
 )
 from skills.tool_discovery import ToolDiscoveryEngine
 from skills.tool_escalation import TeacherEscalationPlanner
 from skills.tool_parser import ToolLifecycleParser
 from skills.tool_promotion import ToolPromotionPolicy
+from skills.tool_registry import ToolRegistry
 
 __all__ = [
     "HelpRequestKind",
@@ -42,5 +44,7 @@ __all__ = [
     "ToolLifecycleParser",
     "ToolMatchResult",
     "ToolPromotionPolicy",
+    "ToolRegistry",
+    "ToolRegistryRecord",
     "ToolSpec",
 ]

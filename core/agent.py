@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 import uuid
 from pathlib import Path
 
@@ -29,8 +30,10 @@ from skills.selector import SkillCandidate, SkillSelector
 from skills.tool_builder import ToolBuilderPlanner
 from skills.tool_contracts import (
     HelpRequestKind,
+    PromotionTier,
     ProjectToolContext,
     ToolBuildRequest,
+    ToolExecutionRecord,
     ToolFailureRecord,
     ToolIOField,
     ToolKnowledgeBase,
@@ -40,6 +43,8 @@ from skills.tool_contracts import (
 from skills.tool_discovery import ToolDiscoveryEngine
 from skills.tool_escalation import TeacherEscalationPlanner
 from skills.tool_parser import ToolLifecycleParser
+from skills.tool_promotion import ToolPromotionPolicy
+from skills.tool_registry import ToolRegistry
 
 
 class CognitiveAgent:
@@ -55,6 +60,7 @@ class CognitiveAgent:
         emotion_engine: EmotionEngine | None = None,
         evolver: SkillEvolver | None = None,
         skill_manager: SkillManager | None = None,
+        tool_registry: ToolRegistry | None = None,
     ):
         self.config = config or load_config()
         self.prompts = self._load_prompts()
@@ -72,6 +78,9 @@ class CognitiveAgent:
         )
         self.evolver = evolver or SkillEvolver(self.llm, self.skill_manager)
         self.scorer = RuleBasedScorer()
+        registry_path = Path(__file__).parent.parent / "data" / "tool_registry.json"
+        self.tool_registry = tool_registry or ToolRegistry(index_file=registry_path)
+        self.tool_promotion = ToolPromotionPolicy()
         self.tool_knowledge_base = self._build_tool_knowledge_base()
         self.tool_discovery = ToolDiscoveryEngine(self.tool_knowledge_base)
         self.tool_builder = ToolBuilderPlanner()
@@ -89,6 +98,7 @@ class CognitiveAgent:
 
     def run(self, user_input: str) -> str:
         trace_id = self._new_trace_id()
+        self._reload_tool_runtime_state()
         memory_result = self.long_term_memory.search(
             query=user_input,
             n_results=self.config.agent.memory_top_k,
@@ -133,6 +143,7 @@ class CognitiveAgent:
 
         messages = self.working_memory.get_context()
         tool_steps = 0
+        active_contract: ToolSpec | None = None
 
         for _ in range(self.config.agent.max_steps):
             self._refresh_system_prompt(
@@ -156,6 +167,7 @@ class CognitiveAgent:
             action = ReActParser.parse_action(response)
             if action:
                 tool_steps += 1
+                action_started = time.perf_counter()
                 loop_compactor.record_action(action.tool_name, action.tool_input)
                 is_internalized_skill = self.skill_selector.has_skill(action.tool_name)
                 if is_internalized_skill:
@@ -168,6 +180,7 @@ class CognitiveAgent:
                         },
                     )
                 observation = self.tools.execute(action.tool_name, action.tool_input)
+                action_latency_ms = int((time.perf_counter() - action_started) * 1000)
                 if is_internalized_skill:
                     event_type = "skill_success"
                     lowered_observation = observation.lower()
@@ -181,6 +194,18 @@ class CognitiveAgent:
                             "observation_preview": observation[:200],
                         },
                     )
+                    self.tool_registry.add_execution(
+                        ToolExecutionRecord(
+                            tool_name=action.tool_name,
+                            project_id=tool_context.project_id,
+                            success=event_type == "skill_success",
+                            matched_contract=True,
+                            latency_ms=action_latency_ms,
+                            reused_existing_tool=True,
+                            internalized_after_run=True,
+                            notes="internalized skill execution",
+                        )
+                    )
                 loop_compactor.record_observation(observation)
                 messages.append({"role": "assistant", "content": response})
                 messages.append({"role": "user", "content": f"Observation: {observation}"})
@@ -190,11 +215,15 @@ class CognitiveAgent:
             if tool_spec is not None:
                 loop_compactor.record_tool_spec(tool_spec, source="small_model")
                 messages.append({"role": "assistant", "content": response})
-                follow_up = self._handle_tool_spec(
+                follow_up, accepted_spec = self._handle_tool_spec(
                     tool_spec=tool_spec,
                     tool_context=tool_context,
+                    spec_source="small_model",
                     loop_compactor=loop_compactor,
                 )
+                if accepted_spec is not None:
+                    active_contract = accepted_spec
+                    self._reload_tool_runtime_state()
                 loop_compactor.record_observation(follow_up)
                 messages.append({"role": "user", "content": follow_up})
                 continue
@@ -214,6 +243,14 @@ class CognitiveAgent:
                     response_text=response,
                     trace_id=trace_id,
                 )
+                if active_contract is not None:
+                    self._record_contract_outcome(
+                        tool_spec=active_contract,
+                        project_id=tool_context.project_id,
+                        success=True,
+                        notes="final_answer_reached",
+                        trace_id=trace_id,
+                    )
                 self.long_term_memory.add(
                     text=f"User: {user_input} | Agent: {final_answer}",
                     metadata={
@@ -253,6 +290,14 @@ class CognitiveAgent:
                 response_text=response,
                 trace_id=trace_id,
             )
+            if active_contract is not None:
+                self._record_contract_outcome(
+                    tool_spec=active_contract,
+                    project_id=tool_context.project_id,
+                    success=False,
+                    notes="fallback_response_without_final_answer",
+                    trace_id=trace_id,
+                )
             self.working_memory.add_message("assistant", response)
             return response
 
@@ -271,6 +316,14 @@ class CognitiveAgent:
             source="self_generated",
             score_snapshot=score.as_dict(),
         )
+        if active_contract is not None:
+            self._record_contract_outcome(
+                tool_spec=active_contract,
+                project_id=tool_context.project_id,
+                success=False,
+                notes="max_steps_timeout",
+                trace_id=trace_id,
+            )
         self.working_memory.add_message("assistant", timeout_response)
         return timeout_response
 
@@ -279,11 +332,17 @@ class CognitiveAgent:
         *,
         tool_spec: ToolSpec,
         tool_context: ProjectToolContext,
+        spec_source: str,
         loop_compactor: LoopContextCompactor | None = None,
         allow_teacher_repair: bool = True,
-    ) -> str:
+    ) -> tuple[str, ToolSpec | None]:
         readiness = self.tool_builder.assess_readiness(tool_spec)
         if readiness.ready:
+            self._persist_tool_contract(
+                tool_spec=tool_spec,
+                tool_context=tool_context,
+                source=spec_source,
+            )
             outline = self.tool_builder.build_outline(
                 ToolBuildRequest(
                     context=tool_context,
@@ -293,14 +352,16 @@ class CognitiveAgent:
             return (
                 "Observation: Tool contract accepted.\n"
                 f"{outline}\n"
-                "Next step: implement or compose this tool with python_repl, then continue."
+                "Next step: implement or compose this tool with python_repl, then continue.",
+                tool_spec,
             )
 
         if not allow_teacher_repair:
             return (
                 "Observation: Tool contract is still incomplete after teacher repair.\n"
                 f"Missing items: {', '.join(readiness.missing_items) or '(none)'}\n"
-                "Next step: repair the remaining fields before implementation."
+                "Next step: repair the remaining fields before implementation.",
+                None,
             )
 
         teacher_request = self.teacher_escalation.create_request(
@@ -321,21 +382,24 @@ class CognitiveAgent:
         if repaired_spec is not None:
             if loop_compactor is not None:
                 loop_compactor.record_tool_spec(repaired_spec, source="teacher")
-            repaired_follow_up = self._handle_tool_spec(
+            repaired_follow_up, accepted_spec = self._handle_tool_spec(
                 tool_spec=repaired_spec,
                 tool_context=tool_context,
+                spec_source="teacher",
                 loop_compactor=loop_compactor,
                 allow_teacher_repair=False,
             )
             return (
                 "Observation: Teacher returned a repaired tool contract.\n"
-                f"{repaired_follow_up}"
+                f"{repaired_follow_up}",
+                accepted_spec,
             )
         return (
             "Observation: Tool contract is incomplete.\n"
             f"Missing items: {', '.join(readiness.missing_items) or '(none)'}\n"
             "Teacher guidance follows.\n"
-            f"{teacher_reply}"
+            f"{teacher_reply}",
+            None,
         )
 
     def _request_teacher_help(self, request: object) -> str:
@@ -531,6 +595,7 @@ class CognitiveAgent:
 
     def _build_tool_knowledge_base(self) -> ToolKnowledgeBase:
         specs: list[ToolSpec] = []
+        seen: set[str] = set()
         for record in self.skill_manager.catalog.list_records():
             if not record.enabled:
                 continue
@@ -544,7 +609,69 @@ class CognitiveAgent:
                     tags=("internalized_skill",),
                 )
             )
+            seen.add(record.name)
+        for record in self.tool_registry.list_records():
+            if not record.enabled or record.name in seen:
+                continue
+            specs.append(record.spec)
+            seen.add(record.name)
         return ToolKnowledgeBase(specs=specs)
+
+    def _reload_tool_runtime_state(self) -> None:
+        self.tool_knowledge_base = self._build_tool_knowledge_base()
+        self.tool_discovery = ToolDiscoveryEngine(self.tool_knowledge_base)
+
+    def _persist_tool_contract(
+        self,
+        *,
+        tool_spec: ToolSpec,
+        tool_context: ProjectToolContext,
+        source: str,
+    ) -> None:
+        self.tool_registry.upsert_spec(
+            spec=tool_spec,
+            project_id=tool_context.project_id,
+            source=tool_context.task_summary,
+            origin=source,
+            tier=PromotionTier.EPISODE,
+            note=f"accepted_from={source}",
+        )
+
+    def _record_contract_outcome(
+        self,
+        *,
+        tool_spec: ToolSpec,
+        project_id: str,
+        success: bool,
+        notes: str,
+        trace_id: str,
+    ) -> None:
+        execution = ToolExecutionRecord(
+            tool_name=tool_spec.name,
+            project_id=project_id,
+            success=success,
+            matched_contract=True,
+            latency_ms=0,
+            reused_existing_tool=self.skill_selector.has_skill(tool_spec.name),
+            internalized_after_run=self.skill_selector.has_skill(tool_spec.name),
+            notes=notes,
+        )
+        self.tool_registry.add_execution(execution)
+        decision = self.tool_promotion.decide(self.tool_registry.executions_for(tool_spec.name))
+        upgraded = self.tool_registry.apply_promotion(tool_spec.name, decision)
+        self.skill_event_logger.log(
+            "tool_promotion_evaluated",
+            trace_id,
+            {
+                "tool_name": tool_spec.name,
+                "success": success,
+                "reuse_score": decision.score.reuse_score,
+                "internalize_score": decision.score.internalize_score,
+                "tier": decision.tier.value,
+                "should_promote": decision.should_promote,
+                "registry_updated": upgraded is not None,
+            },
+        )
 
     def _try_evolve(
         self,

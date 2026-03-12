@@ -164,10 +164,25 @@ class PromotionDecision:
     explanation: str
 
 
+@dataclass(frozen=True)
+class ToolRegistryRecord:
+    """Persisted tool-contract metadata independent of Python skill code."""
+
+    name: str
+    project_id: str
+    source: str
+    origin: str
+    tier: PromotionTier
+    created_at: str
+    updated_at: str
+    spec: ToolSpec
+    enabled: bool = True
+    notes: tuple[str, ...] = ()
+
+
 @dataclass
 class ToolKnowledgeBase:
     """In-memory registry for tool contracts and execution history."""
 
     specs: list[ToolSpec] = field(default_factory=list)
     executions: list[ToolExecutionRecord] = field(default_factory=list)
-

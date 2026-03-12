@@ -36,6 +36,7 @@ from config.settings import AgentConfig, AppConfig, SkillConfig
 from core.agent import CognitiveAgent
 from core.contracts import ChatResult
 from skills.manager import SkillManager
+from skills.tool_registry import ToolRegistry
 
 
 class FakeMemory:
@@ -209,6 +210,7 @@ def _build_agent(
     max_steps: int = 3,
     skill_manager: SkillManager | None = None,
     config: AppConfig | None = None,
+    tool_registry: ToolRegistry | None = None,
 ) -> CognitiveAgent:
     cfg = config or AppConfig(
         agent=AgentConfig(max_steps=max_steps, memory_top_k=3, default_temperature=0.1),
@@ -222,6 +224,7 @@ def _build_agent(
         emotion_engine=FakeEmotionEngine(),  # type: ignore[arg-type]
         evolver=FakeEvolver(),  # type: ignore[arg-type]
         skill_manager=skill_manager,
+        tool_registry=tool_registry,
     )
 
 
@@ -316,17 +319,24 @@ def test_agent_requests_teacher_help_for_incomplete_tool_spec(tmp_path) -> None:
         skill_file=tmp_path / "custom_skills.py",
         index_file=tmp_path / "index.json",
     )
+    tool_registry = ToolRegistry(index_file=tmp_path / "tool_registry.json")
     agent = _build_agent(
         llm=llm,
         memory=memory,
         max_steps=4,
         skill_manager=skill_manager,
+        tool_registry=tool_registry,
     )
 
     answer = agent.run("design a sum tool")
 
     assert answer == "tool ready"
     assert llm.large_calls == 1
+    record = tool_registry.get_record("draft_sum_tool")
+    assert record is not None
+    assert record.origin == "teacher"
+    assert record.tier.value in {"episode", "project"}
+    assert tool_registry.executions_for("draft_sum_tool")
 
 
 def test_agent_compacts_loop_context_for_small_models() -> None:

@@ -14,6 +14,7 @@ from skills.tool_contracts import (
 from skills.tool_discovery import ToolDiscoveryEngine
 from skills.tool_escalation import TeacherEscalationPlanner
 from skills.tool_promotion import ToolPromotionPolicy
+from skills.tool_registry import ToolRegistry
 
 
 def _sample_spec() -> ToolSpec:
@@ -134,3 +135,43 @@ def test_build_outline_mentions_contract_io() -> None:
 
     assert "repo_path:path" in outline
     assert "api_list:json" in outline
+
+
+def test_tool_registry_persists_specs_and_promotions(tmp_path) -> None:
+    registry = ToolRegistry(index_file=tmp_path / "tool_registry.json")
+    spec = _sample_spec()
+
+    registry.upsert_spec(
+        spec=spec,
+        project_id="proj-1",
+        source="summarize repo apis",
+        origin="teacher",
+    )
+    registry.add_execution(
+        ToolExecutionRecord(
+            tool_name=spec.name,
+            project_id="proj-1",
+            success=True,
+            matched_contract=True,
+            latency_ms=120,
+        )
+    )
+    registry.add_execution(
+        ToolExecutionRecord(
+            tool_name=spec.name,
+            project_id="proj-2",
+            success=True,
+            matched_contract=True,
+            latency_ms=140,
+            reused_existing_tool=True,
+        )
+    )
+
+    policy = ToolPromotionPolicy()
+    decision = policy.decide(registry.executions_for(spec.name))
+    updated = registry.apply_promotion(spec.name, decision)
+
+    assert updated is not None
+    assert updated.name == spec.name
+    assert updated.tier.value in {"project", "global"}
+    assert registry.get_record(spec.name) is not None

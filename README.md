@@ -68,6 +68,7 @@ Responsible for agent behavior, memory, tools, skills, and inspection UI.
 - External Docker dev: `deploy/ipc_external/README.md`
 - Communication boundary: `PROJECT_STRUCTURE.md`
 - Web console: `docs/WEB_CONSOLE.md`
+- Update log: `docs/UPDATE_LOG.md`
 
 ## Packaging
 

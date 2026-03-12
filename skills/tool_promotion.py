@@ -18,17 +18,28 @@ class ToolPromotionPolicy:
 
     project_reuse_threshold: float = 2.5
     global_internalize_threshold: float = 4.0
+    min_runs_for_project: int = 2
+    min_runs_for_global: int = 3
+    min_projects_for_global: int = 2
 
     def decide(self, executions: list[ToolExecutionRecord]) -> PromotionDecision:
         score = self.score(executions)
-        if score.internalize_score >= self.global_internalize_threshold:
+        project_span = len({item.project_id for item in executions})
+        if (
+            len(executions) >= self.min_runs_for_global
+            and project_span >= self.min_projects_for_global
+            and score.internalize_score >= self.global_internalize_threshold
+        ):
             return PromotionDecision(
                 tier=PromotionTier.GLOBAL,
                 score=score,
                 should_promote=True,
                 explanation="Tool is stable enough for global internalization.",
             )
-        if score.reuse_score >= self.project_reuse_threshold:
+        if (
+            len(executions) >= self.min_runs_for_project
+            and score.reuse_score >= self.project_reuse_threshold
+        ):
             return PromotionDecision(
                 tier=PromotionTier.PROJECT,
                 score=score,

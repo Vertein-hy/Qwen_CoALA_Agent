@@ -82,6 +82,13 @@ Every tool run should produce a `ToolExecutionRecord` so the system can learn:
 - was it reusable
 - did it match the intended interface
 
+Accepted contracts should also be persisted even before they become Python
+skills. This allows the agent to:
+
+- rediscover contract-first tools across restarts
+- accumulate evidence before promotion
+- keep contract learning separate from direct skill code internalization
+
 ### 6. Promotion policy
 
 Tool outputs should move through three levels:
@@ -104,9 +111,20 @@ Promotion should depend on explicit score, not a free-form model opinion.
   - larger-model request assembly
 - `skills/tool_promotion.py`
   - reuse and internalization scoring
+- `skills/tool_registry.py`
+  - persistent storage for contract candidates and execution history
 
 ## Integration boundary
 
-These modules are scaffolding for future integration.
-They should not change the existing CoALA runtime flow until the wiring plan is
-explicitly chosen.
+Current integration status:
+
+- discovery and contract planning are wired into `core/agent.py`
+- incomplete contracts can escalate to the larger model for structured repair
+- repaired contracts can be persisted in the tool registry
+- execution history can update promotion tier
+
+Still not implemented:
+
+- automatic conversion from promoted `ToolSpec` to final Python skill code
+- project-aware `project_id` derivation from workspace boundaries
+- richer latency and cost accounting for non-skill tool runs
