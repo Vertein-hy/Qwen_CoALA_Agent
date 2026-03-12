@@ -122,10 +122,10 @@ class CodeAnswerLLM:
     response: str = (
         "```python\n"
         "def auto_sum_n(n):\n"
-        "    \"\"\"Return sum from 1 to n.\"\"\"\n"
+        '    """Return sum from 1 to n."""\n'
         "    return sum(range(1, n + 1))\n"
         "```\n"
-        "Final Answer: 已定义函数。"
+        "Final Answer: 已为你内化该技能。"
     )
 
     def chat_with_meta(
@@ -191,7 +191,7 @@ def test_system_prompt_contains_chinese_language_requirement() -> None:
 
     system_prompt = agent.working_memory.get_context()[0]["content"]
 
-    assert "简体中文" in system_prompt
+    assert "[语言要求]" in system_prompt
 
 
 def test_system_prompt_includes_ranked_skill_candidates(tmp_path) -> None:
@@ -200,7 +200,7 @@ def test_system_prompt_includes_ranked_skill_candidates(tmp_path) -> None:
         index_file=tmp_path / "index.json",
     )
     skill_manager.append_skill(
-        source="计算 1 到 n 的和",
+        source="计算 1 到 n 的求和",
         function_code="""
 def calc_sum_n(n):
     \"\"\"Return sum from 1 to n.\"\"\"
@@ -215,7 +215,7 @@ def calc_sum_n(n):
         skill_manager=skill_manager,
     )
 
-    _ = agent.run("请帮我计算从1到100的和")
+    _ = agent.run("请帮我计算 1 到 100 的求和")
     system_prompt = agent.working_memory.get_context()[0]["content"]
 
     assert "[候选内部技能]" in system_prompt
@@ -234,6 +234,6 @@ def test_agent_internalizes_skill_from_plain_code_block_response(tmp_path) -> No
         skill_manager=skill_manager,
     )
 
-    _ = agent.run("请帮我定义一个求和函数")
+    _ = agent.run("请给我一段可复用的求和函数")
 
     assert skill_manager.has_skill("auto_sum_n")

@@ -62,11 +62,7 @@ class LocalModelConfig:
 
 @dataclass(frozen=True)
 class RemoteModelConfig:
-    """Configuration for the remote large model backend.
-
-    The remote endpoint is expected to be OpenAI-compatible and supports
-    /chat/completions.
-    """
+    """Configuration for the remote large model backend."""
 
     model: str = "qwen3.5-397b-a17b"
     api_base: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
@@ -153,10 +149,8 @@ def _optional_int_from_env(name: str) -> int | None:
 
 
 def load_config() -> AppConfig:
-    """Load config from environment with safe defaults.
+    """Load config from environment with safe defaults."""
 
-    Existing deployments can override any field by setting env vars.
-    """
     _load_dotenv(ENV_FILE)
 
     local = LocalModelConfig(
@@ -227,6 +221,7 @@ def load_config() -> AppConfig:
         default_max_tokens=int(os.getenv("COALA_AGENT_MAX_TOKENS", "1024")),
         default_seed=_optional_int_from_env("COALA_AGENT_SEED"),
     )
+
     skills = SkillConfig(
         candidate_top_k=int(os.getenv("COALA_SKILL_CANDIDATE_TOP_K", "3")),
         enable_event_log=_bool_from_env("COALA_SKILL_EVENT_LOG", True),
@@ -248,9 +243,6 @@ def load_config() -> AppConfig:
     )
 
 
-# ---------------------------------------------------------------------------
-# Backward compatible constants (legacy imports still work)
-# ---------------------------------------------------------------------------
 _loaded = load_config()
 OLLAMA_MODEL_NAME = _loaded.local_model.name
 OLLAMA_HOST = _loaded.local_model.host

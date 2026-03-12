@@ -1,4 +1,4 @@
-﻿"""Cognitive agent orchestration.
+"""Cognitive agent orchestration.
 
 This module focuses on workflow orchestration and delegates domain work to
 specialized components (LLM, memory, tools, emotion, evolution).
@@ -304,7 +304,6 @@ class CognitiveAgent:
     ) -> None:
         candidates: list[str] = []
 
-        # Highest confidence source: explicit python_repl tool calls in ReAct traces.
         for msg in reversed(messages):
             if msg.get("role") != "assistant":
                 continue
@@ -320,7 +319,6 @@ class CognitiveAgent:
                 candidates.append(code)
                 break
 
-        # Non-ReAct fallback: extract function code from plain assistant text.
         candidates.extend(self._collect_code_candidates(response_text))
 
         seen: set[str] = set()
@@ -358,10 +356,13 @@ class CognitiveAgent:
                     )
                     continue
 
-            # If extracted code is not directly valid, try evolver refactor path.
             if any(token in normalized for token in ["def ", "for ", "while ", "import "]):
                 ok = self.evolver.evolve(user_intent=user_input, successful_code=normalized)
-                event_type = "skill_internalized_via_evolver" if ok else "skill_internalize_failed"
+                event_type = (
+                    "skill_internalized_via_evolver"
+                    if ok
+                    else "skill_internalize_failed"
+                )
                 self.skill_event_logger.log(
                     event_type,
                     trace_id,
@@ -376,7 +377,6 @@ class CognitiveAgent:
             return []
         out: list[str] = []
 
-        # Markdown fenced blocks
         for block in re.findall(r"```(?:python)?\s*([\s\S]*?)```", text, flags=re.IGNORECASE):
             candidate = block.strip()
             if "def " in candidate:
@@ -385,7 +385,6 @@ class CognitiveAgent:
         if out:
             return out
 
-        # Plain inline function definition fallback.
         marker = "def "
         idx = text.find(marker)
         if idx >= 0:

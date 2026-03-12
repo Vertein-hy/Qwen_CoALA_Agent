@@ -1,6 +1,3 @@
-# ===========================
-# 1. 核心系统与环境
-# ===========================
 __pycache__/
 *.py[cod]
 *$py.class
@@ -11,26 +8,14 @@ venv/
 .idea/
 .vscode/
 
-# ===========================
-# 2. 模型与 Ollama 数据 (关键修改区)
-# ===========================
-# 忽略 GGUF (你之前手动下的)
 models/*.gguf
 models/*.bin
-
-# 忽略 Ollama 的内部数据库结构 (你改路径后生成的)
-# blobs 里面全是几个G的模型切片，千万别传！
-models/blobs/
 models/manifests/
 models/registry.ollama.ai/
 
-# 忽略下载临时文件
 *.part
 *.download
 
-# ===========================
-# 3. 数据与记忆 (运行时生成)
-# ===========================
 data/chroma_db/
 data/logs/
 *.log
@@ -38,9 +23,9 @@ data/logs/
 *.json
 *.csv
 
-# ===========================
-# 4. 白名单 (保留代码资产)
-# ===========================
+.pytest_tmp/
+tests/_pytest_tmp/
+
 !Modelfile
 !.gitkeep
 !skills/internalized/*.py
