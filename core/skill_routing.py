@@ -60,6 +60,23 @@ class SkillRouter:
     _TOP_MATCH_MARGIN = 0.75
     _AUTO_ROUTE_MIN_SCORE = 4.5
     _AUTO_ROUTE_TAGS = {"deterministic_builtin"}
+    _DOCUMENT_SUMMARY_HINTS = (
+        "文档摘要",
+        "文件摘要",
+        "目录摘要",
+        "整体摘要",
+        "全局摘要",
+        "semantic summary",
+        "global summary",
+        "summarize documents",
+        "read folder",
+        "读取文件夹",
+        "读取文档",
+        "pdf",
+        "docx",
+        "excel",
+        "xlsx",
+    )
 
     @classmethod
     def infer_direct_skill_call(
@@ -73,6 +90,14 @@ class SkillRouter:
         normalized = user_input.strip().lower()
         if not normalized:
             return None
+
+        document_summary_call = cls._infer_document_summary_route(
+            user_input=user_input,
+            tool_matches=tool_matches,
+            executable_tool_names=executable_tool_names,
+        )
+        if document_summary_call is not None:
+            return document_summary_call
 
         executable_matches = [
             item for item in tool_matches if item.spec.name in executable_tool_names
@@ -106,6 +131,39 @@ class SkillRouter:
             reason="tool_spec_direct_route" if has_direct_hint else "deterministic_builtin_auto_route",
             matched_via=top_match.rationale,
         )
+
+    @classmethod
+    def _infer_document_summary_route(
+        cls,
+        *,
+        user_input: str,
+        tool_matches: list[ToolMatchResult],
+        executable_tool_names: set[str],
+    ) -> DirectSkillCall | None:
+        lowered = user_input.strip().lower()
+        if not any(hint in lowered for hint in cls._DOCUMENT_SUMMARY_HINTS):
+            return None
+
+        preferred_name = "summarize_documents_semantic" if any(
+            token in lowered for token in ("semantic", "主题", "全局", "整体")
+        ) else "summarize_documents"
+
+        for name in (preferred_name, "summarize_documents", "summarize_documents_semantic"):
+            if name not in executable_tool_names:
+                continue
+            match = next((item for item in tool_matches if item.spec.name == name), None)
+            if match is None:
+                continue
+            bound_input = cls._bind_tool_input(user_input=user_input, spec=match.spec)
+            if bound_input is None:
+                continue
+            return DirectSkillCall(
+                tool_name=name,
+                tool_input=bound_input,
+                reason="document_summary_auto_route",
+                matched_via=match.rationale,
+            )
+        return None
 
     @classmethod
     def should_finalize_from_observation(

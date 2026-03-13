@@ -21,10 +21,7 @@
         --panel-muted: #9ca3af;
       }
 
-      * {
-        box-sizing: border-box;
-      }
-
+      * { box-sizing: border-box; }
       body {
         margin: 0;
         color: var(--text);
@@ -33,36 +30,16 @@
           radial-gradient(circle at top left, rgba(31, 92, 74, 0.1), transparent 28%),
           linear-gradient(180deg, var(--bg-accent) 0%, var(--bg) 100%);
       }
-
-      main {
-        max-width: 1520px;
-        margin: 0 auto;
-        padding: 20px;
-      }
-
-      h1 {
-        margin: 0;
-        font-size: 34px;
-      }
-
-      .lead {
-        margin: 8px 0 18px;
-        color: var(--muted);
-      }
-
+      main { max-width: 1520px; margin: 0 auto; padding: 20px; }
+      h1 { margin: 0; font-size: 34px; }
+      .lead { margin: 8px 0 18px; color: var(--muted); }
       .layout {
         display: grid;
         grid-template-columns: minmax(0, 1.6fr) minmax(320px, 0.9fr);
         gap: 16px;
         align-items: start;
       }
-
-      .stack {
-        display: grid;
-        gap: 16px;
-        min-width: 0;
-      }
-
+      .stack { display: grid; gap: 16px; min-width: 0; }
       .card {
         min-width: 0;
         background: var(--card);
@@ -71,18 +48,8 @@
         padding: 14px;
         box-shadow: 0 12px 28px rgba(31, 41, 51, 0.06);
       }
-
-      .card h3 {
-        margin: 0 0 10px;
-      }
-
-      .toolbar {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-        margin-top: 10px;
-      }
-
+      .card h3 { margin: 0 0 10px; }
+      .toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
       textarea {
         width: 100%;
         min-height: 108px;
@@ -94,7 +61,6 @@
         color: var(--text);
         font: 14px/1.6 Consolas, "Courier New", monospace;
       }
-
       button {
         border: 0;
         border-radius: 999px;
@@ -103,12 +69,7 @@
         color: #fff;
         cursor: pointer;
       }
-
-      button.secondary {
-        background: #e8e1d6;
-        color: var(--text);
-      }
-
+      button.secondary { background: #e8e1d6; color: var(--text); }
       .chat-log {
         max-height: 360px;
         overflow: auto;
@@ -117,25 +78,10 @@
         border-radius: 12px;
         background: #fff;
       }
-
-      .msg {
-        margin: 8px 0;
-        padding: 10px 12px;
-        border-radius: 10px;
-        white-space: pre-wrap;
-        word-break: break-word;
-      }
-
-      .msg.user {
-        background: var(--user-bg);
-      }
-
-      .msg.bot {
-        background: var(--bot-bg);
-      }
-
-      pre,
-      .trace-box {
+      .msg { margin: 8px 0; padding: 10px 12px; border-radius: 10px; white-space: pre-wrap; word-break: break-word; }
+      .msg.user { background: var(--user-bg); }
+      .msg.bot { background: var(--bot-bg); }
+      pre, .trace-box {
         width: 100%;
         max-width: 100%;
         overflow: auto;
@@ -150,11 +96,7 @@
         overflow-wrap: anywhere;
         word-break: break-word;
       }
-
-      .trace-box {
-        max-height: none;
-      }
-
+      .trace-box { max-height: none; }
       .trace-step {
         margin-bottom: 10px;
         padding: 10px;
@@ -162,23 +104,14 @@
         border-radius: 10px;
         background: rgba(255, 255, 255, 0.04);
       }
-
-      .trace-step strong {
-        color: #93c5fd;
-      }
-
-      .trace-meta {
-        margin-top: 8px;
-        color: var(--panel-muted);
-      }
-
+      .trace-step strong { color: #93c5fd; }
+      .trace-meta { margin-top: 8px; color: var(--panel-muted); }
       .meta-grid {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 8px;
         margin-bottom: 10px;
       }
-
       .pill {
         display: inline-block;
         margin-right: 6px;
@@ -188,34 +121,27 @@
         color: var(--accent);
         font-size: 12px;
       }
-
-      @media (max-width: 1040px) {
-        .layout {
-          grid-template-columns: 1fr;
-        }
+      input[type="file"] {
+        width: 100%;
+        padding: 8px;
+        border: 1px dashed var(--line);
+        border-radius: 12px;
+        background: #fff;
       }
-
+      @media (max-width: 1040px) {
+        .layout { grid-template-columns: 1fr; }
+      }
       @media (max-width: 720px) {
-        main {
-          padding: 12px;
-        }
-
-        h1 {
-          font-size: 28px;
-        }
-
-        .meta-grid {
-          grid-template-columns: 1fr;
-        }
+        main { padding: 12px; }
+        h1 { font-size: 28px; }
+        .meta-grid { grid-template-columns: 1fr; }
       }
     </style>
   </head>
   <body>
     <main>
       <h1>CoALA Web Console</h1>
-      <p class="lead">
-        用于测试 Agent、查看每轮 Action / Observation / Tool Spec / Final Result 的结构化 trace。
-      </p>
+      <p class="lead">用于测试 Agent、查看结构化 trace，并上传调试文件到受控目录。</p>
 
       <div class="layout">
         <div class="stack">
@@ -224,7 +150,7 @@
             <div id="chatLog" class="chat-log"></div>
             <textarea
               id="chatInput"
-              placeholder="输入测试任务，例如：请从当前项目代码中提取所有 HTTP API 路由，并输出 markdown 摘要。如果没有合适工具，先定义 Tool Spec。"
+              placeholder="输入测试任务，例如：请进入当前项目的 data/web_uploads 文件夹，给出整体文档摘要。"
             ></textarea>
             <div class="toolbar">
               <button onclick="sendChat()">发送</button>
@@ -240,6 +166,16 @@
         </div>
 
         <div class="stack">
+          <section class="card">
+            <h3>调试上传</h3>
+            <input id="uploadInput" type="file" />
+            <div class="toolbar">
+              <button onclick="uploadSelectedFile()">上传文件</button>
+              <button class="secondary" onclick="loadUploads()">刷新列表</button>
+            </div>
+            <pre id="uploadBox"></pre>
+          </section>
+
           <section class="card">
             <h3>技能</h3>
             <div class="toolbar">
@@ -394,9 +330,40 @@
         document.getElementById("validateBox").textContent = JSON.stringify(data, null, 2);
       }
 
+      async function uploadSelectedFile() {
+        const input = document.getElementById("uploadInput");
+        const file = input.files && input.files[0];
+        if (!file) {
+          document.getElementById("uploadBox").textContent = "请选择一个文件。";
+          return;
+        }
+        const buffer = await file.arrayBuffer();
+        const bytes = new Uint8Array(buffer);
+        let binary = "";
+        for (let i = 0; i < bytes.length; i += 1) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        const content_b64 = btoa(binary);
+        const data = await api("/api/upload-file", {
+          method: "POST",
+          body: JSON.stringify({
+            filename: file.name,
+            content_b64,
+          }),
+        });
+        document.getElementById("uploadBox").textContent = JSON.stringify(data, null, 2);
+        await loadUploads();
+      }
+
+      async function loadUploads() {
+        const data = await api("/api/uploads");
+        document.getElementById("uploadBox").textContent = JSON.stringify(data, null, 2);
+      }
+
       checkHealth().catch(() => {});
       loadSkills().catch(() => {});
       loadLogs("skill").catch(() => {});
+      loadUploads().catch(() => {});
     </script>
   </body>
 </html>

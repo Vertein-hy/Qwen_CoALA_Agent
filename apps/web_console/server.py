@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+from base64 import b64decode
 from collections import deque
 from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -26,6 +27,7 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 INDEX_HTML_PATH = ROOT_DIR / "apps" / "web_console" / "static" / "index.html"
 SKILL_FILE = ROOT_DIR / "skills" / "internalized" / "custom_skills.py"
 SKILL_INDEX_FILE = ROOT_DIR / "skills" / "internalized" / "index.json"
+UPLOAD_DIR = ROOT_DIR / "data" / "web_uploads"
 
 HOST = os.getenv("COALA_WEB_HOST", "127.0.0.1")
 PORT = int(os.getenv("COALA_WEB_PORT", "7860"))
@@ -56,6 +58,20 @@ class ConsoleState:
             "function_name": result.function_name,
             "errors": list(result.errors),
             "warnings": list(result.warnings),
+        }
+
+    def save_uploaded_file(self, *, filename: str, content_b64: str) -> dict[str, Any]:
+        safe_name = Path(filename).name.strip()
+        if not safe_name:
+            raise ValueError("filename is required")
+        UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+        target = UPLOAD_DIR / safe_name
+        payload = b64decode(content_b64.encode("utf-8"))
+        target.write_bytes(payload)
+        return {
+            "saved_path": str(target),
+            "filename": safe_name,
+            "size_bytes": len(payload),
         }
 
     def health(self) -> dict[str, Any]:
@@ -133,6 +149,21 @@ class ConsoleHandler(BaseHTTPRequestHandler):
             self._send_json(200, STATE.health())
             return
 
+        if path == "/api/uploads":
+            rows = []
+            if UPLOAD_DIR.exists():
+                for item in sorted(UPLOAD_DIR.iterdir()):
+                    if item.is_file():
+                        rows.append(
+                            {
+                                "name": item.name,
+                                "path": str(item),
+                                "size_bytes": item.stat().st_size,
+                            }
+                        )
+            self._send_json(200, {"upload_dir": str(UPLOAD_DIR), "files": rows})
+            return
+
         if path == "/api/skills":
             index_payload = _read_json(SKILL_INDEX_FILE, default={"version": 1, "skills": []})
             source_text = SKILL_FILE.read_text(encoding="utf-8") if SKILL_FILE.exists() else ""
@@ -181,6 +212,23 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                 return
             code = str(payload.get("code", ""))
             self._send_json(200, STATE.validate_skill(code))
+            return
+
+        if self.path == "/api/upload-file":
+            payload = self._read_json_body()
+            if payload is None:
+                return
+            filename = str(payload.get("filename", "")).strip()
+            content_b64 = str(payload.get("content_b64", "")).strip()
+            if not filename or not content_b64:
+                self._send_json(400, {"error": "filename and content_b64 are required"})
+                return
+            try:
+                result = STATE.save_uploaded_file(filename=filename, content_b64=content_b64)
+            except Exception as exc:  # noqa: BLE001
+                self._send_json(400, {"error": str(exc)})
+                return
+            self._send_json(200, result)
             return
 
         self._send_json(404, {"error": "not_found"})

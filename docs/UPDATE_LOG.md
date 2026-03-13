@@ -251,3 +251,19 @@
 - `core/tool_lifecycle_runtime.py`
 - `tests/test_tools.py`
 - `tests/test_tool_lifecycle.py`
+
+### `2026-03-13T14:05:00+08:00` `feat: add document auto-route and web upload debug entry`
+
+更新了什么
+- 为文档摘要工具增加显式自动路由规则，避免继续只靠模糊匹配分数。
+- Web 控制台新增调试上传入口，文件会保存到受控目录 `data/web_uploads/`，用于测试文档摘要工具。
+
+对应文档
+- `docs/UPDATE_LOG.md`
+- `docs/DOCUMENT_SUMMARY_TOOL.md`
+
+对应代码位置
+- `core/skill_routing.py`
+- `apps/web_console/server.py`
+- `apps/web_console/static/index.html`
+- `tests/test_web_console.py`

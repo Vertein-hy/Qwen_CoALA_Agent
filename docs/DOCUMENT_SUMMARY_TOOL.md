@@ -184,6 +184,11 @@ PDF 读取按这个顺序尝试：
   - `modules/tools.py`
 - builtin ToolSpec 暴露到发现链路：
   - `core/tool_lifecycle_runtime.py`
+- 文档任务显式自动路由：
+  - `core/skill_routing.py`
+- Web 调试上传入口：
+  - `apps/web_console/server.py`
+  - `apps/web_console/static/index.html`
 
 ## 当前长文本策略
 
@@ -204,6 +209,19 @@ PDF 读取按这个顺序尝试：
 - 避免小模型直接吃超长原文
 - 先把“读取”和“压缩”确定性完成
 - 再决定是否需要后续语义推理
+
+## Web 调试入口
+
+Web 控制台现在支持上传调试文件：
+
+- 上传接口：`POST /api/upload-file`
+- 文件列表：`GET /api/uploads`
+- 存储目录：`data/web_uploads/`
+
+这层的约束是固定的：
+- 只允许按文件名写入受控目录
+- 不允许前端指定任意绝对路径
+- 目的是测试内置文档工具，而不是开放文件系统写权限
 
 ## 设计约束
 

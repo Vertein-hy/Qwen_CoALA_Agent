@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import importlib.machinery
 import importlib.util
 import os
 from pathlib import Path
 import sys
 import types
 
-if importlib.util.find_spec("ollama") is None:
+ollama_mod = sys.modules.get("ollama")
+if ollama_mod is None or getattr(ollama_mod, "__spec__", None) is None:
     ollama_stub = types.ModuleType("ollama")
+    ollama_stub.__spec__ = importlib.machinery.ModuleSpec("ollama", loader=None)
 
     class _DummyClient:
         def __init__(self, host: str) -> None:
@@ -17,10 +20,14 @@ if importlib.util.find_spec("ollama") is None:
     ollama_stub.Client = _DummyClient
     sys.modules["ollama"] = ollama_stub
 
-if importlib.util.find_spec("chromadb") is None:
+chromadb_mod = sys.modules.get("chromadb")
+if chromadb_mod is None or getattr(chromadb_mod, "__spec__", None) is None:
     chromadb_stub = types.ModuleType("chromadb")
     chromadb_utils_stub = types.ModuleType("chromadb.utils")
     embedding_stub = types.ModuleType("chromadb.utils.embedding_functions")
+    chromadb_stub.__spec__ = importlib.machinery.ModuleSpec("chromadb", loader=None)
+    chromadb_utils_stub.__spec__ = importlib.machinery.ModuleSpec("chromadb.utils", loader=None)
+    embedding_stub.__spec__ = importlib.machinery.ModuleSpec("chromadb.utils.embedding_functions", loader=None)
 
     class _DefaultEmbeddingFunction:
         def __call__(self, texts: list[str]) -> list[list[float]]:
