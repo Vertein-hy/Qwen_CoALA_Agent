@@ -100,6 +100,25 @@ class ToolLifecycleRuntime:
                 examples=("extract routes from current project",),
                 tags=("http", "api", "route", "markdown", "deterministic_builtin"),
             ),
+            ToolSpec(
+                name="summarize_documents",
+                purpose="Read one document or a folder of documents and return deterministic summaries for text, PDF, DOCX, and XLSX files.",
+                inputs=(
+                    ToolIOField(
+                        name="path",
+                        type_name="string",
+                        required=False,
+                        description="File path or folder path. Defaults to current workspace.",
+                    ),
+                ),
+                outputs=(ToolIOField(name="markdown_summary", type_name="string"),),
+                examples=(
+                    "summarize documents in current project",
+                    "summarize ./docs",
+                    '{"path":"./docs","scope":"file","file_path":"report.docx"}',
+                ),
+                tags=("document", "summary", "pdf", "docx", "xlsx", "folder", "deterministic_builtin"),
+            ),
         )
         for spec in builtin_specs:
             specs.append(spec)

@@ -78,6 +78,30 @@ def test_tool_discovery_supports_cjk_overlap_tokens() -> None:
     assert results[0].breakdown.goal_match >= 3.0
 
 
+def test_tool_discovery_matches_document_summary_contract() -> None:
+    context = ProjectToolContext(
+        project_id="proj-docs",
+        task_summary="请进入固定文件夹，读取里面的 pdf docx excel，并输出整体摘要",
+        available_inputs=("path",),
+        desired_outputs=("markdown_summary",),
+        environment_facts=("python_available", "local_toolbox_available"),
+    )
+    spec = ToolSpec(
+        name="summarize_documents",
+        purpose="Read one document or a folder of documents and return deterministic summaries for text, PDF, DOCX, and XLSX files.",
+        inputs=(ToolIOField(name="path", type_name="string", required=False),),
+        outputs=(ToolIOField(name="markdown_summary", type_name="string"),),
+        tags=("document", "summary", "pdf", "docx", "xlsx", "folder", "deterministic_builtin"),
+    )
+    engine = ToolDiscoveryEngine(knowledge_base=ToolKnowledgeBase(specs=[spec]))
+
+    results = engine.recommend(context, top_k=1)
+
+    assert len(results) == 1
+    assert results[0].spec.name == "summarize_documents"
+    assert results[0].breakdown.goal_match > 0
+
+
 def test_tool_builder_requires_contract_fields() -> None:
     planner = ToolBuilderPlanner()
     readiness = planner.assess_readiness(

@@ -3,5 +3,6 @@ pydantic>=2,<3
 colorama
 pyyaml
 requests
+pypdf>=4,<6
 # Optional provider:
 # ollama

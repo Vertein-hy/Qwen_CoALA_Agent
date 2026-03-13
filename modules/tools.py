@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+from modules.document_summary import DocumentSummaryTool
 from skills.runtime_loader import SkillPluginLoader
 
 
@@ -50,6 +51,7 @@ class ToolBox:
         self.skills_file = Path(skills_file)
         self.python_state: dict = {}
         self.registry = ToolRegistry()
+        self.document_summary = DocumentSummaryTool(data_dir=self.data_dir)
 
         self._register_builtin_tools()
         self.load_internalized_skills()
@@ -59,6 +61,7 @@ class ToolBox:
         self.registry.register("write_file", self.write_file)
         self.registry.register("read_file", self.read_file)
         self.registry.register("extract_http_routes", self.extract_http_routes)
+        self.registry.register("summarize_documents", self.summarize_documents)
 
     def load_internalized_skills(self) -> None:
         """Load callables from skills/internalized/custom_skills.py.
@@ -100,11 +103,12 @@ class ToolBox:
             "2. write_file: write a file, format is 'filename|content'.",
             "3. read_file: read a file by relative path; if input contains '|', only the filename part is used.",
             "4. extract_http_routes: scan a project path and return a Markdown summary of HTTP routes.",
+            "5. summarize_documents: summarize one file or all supported documents in a folder.",
         ]
 
         custom_lines = []
         for name, func in self.registry.items():
-            if name in {"python_repl", "write_file", "read_file"}:
+            if name in {"python_repl", "write_file", "read_file", "extract_http_routes", "summarize_documents"}:
                 continue
             try:
                 sig = str(inspect.signature(func))
@@ -216,6 +220,9 @@ class ToolBox:
         lines.append("")
         lines.append(f"Total routes: {len(route_rows)}")
         return "\n".join(lines)
+
+    def summarize_documents(self, raw_input: str) -> str:
+        return self.document_summary.summarize(raw_input)
 
     @staticmethod
     def _strip_code_fence(code: str) -> str:

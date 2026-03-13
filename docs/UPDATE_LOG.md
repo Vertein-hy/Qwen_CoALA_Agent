@@ -213,3 +213,23 @@
 - `core/agent.py`
 - `core/skill_routing.py`
 - `tests/test_agent_trace.py`
+
+### `2026-03-13T13:18:00+08:00` `feat: add built-in document summary tool`
+
+更新了什么
+- 新增 `summarize_documents` 内置工具，用于读取单个文件或固定目录下的文档并输出确定性摘要。
+- 支持的主格式包括：文本、Markdown、JSON/YAML、PDF、DOCX、XLSX。
+- 解析逻辑被拆到独立模块，避免继续扩大 `modules/tools.py`。
+- 目录摘要支持聚合多个文件并输出整体 Markdown 摘要。
+
+对应文档
+- `docs/UPDATE_LOG.md`
+- `docs/DOCUMENT_SUMMARY_TOOL.md`
+
+对应代码位置
+- `modules/document_summary.py`
+- `modules/tools.py`
+- `core/tool_lifecycle_runtime.py`
+- `requirements.txt`
+- `tests/test_tools.py`
+- `tests/test_tool_lifecycle.py`
