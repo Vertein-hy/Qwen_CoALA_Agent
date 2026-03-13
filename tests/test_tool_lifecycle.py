@@ -102,6 +102,30 @@ def test_tool_discovery_matches_document_summary_contract() -> None:
     assert results[0].breakdown.goal_match > 0
 
 
+def test_tool_discovery_matches_semantic_document_summary_contract() -> None:
+    context = ProjectToolContext(
+        project_id="proj-semantic-docs",
+        task_summary="请读取文件夹里的文档并给出整体主题摘要和全局总结",
+        available_inputs=("path",),
+        desired_outputs=("semantic_summary",),
+        environment_facts=("python_available", "local_toolbox_available"),
+    )
+    spec = ToolSpec(
+        name="summarize_documents_semantic",
+        purpose="Build a second-stage global summary over compressed document summaries and highlight dominant themes.",
+        inputs=(ToolIOField(name="path", type_name="string", required=False),),
+        outputs=(ToolIOField(name="semantic_summary", type_name="string"),),
+        tags=("document", "summary", "semantic", "global", "文档", "主题", "整体", "摘要", "全局", "deterministic_builtin"),
+    )
+    engine = ToolDiscoveryEngine(knowledge_base=ToolKnowledgeBase(specs=[spec]))
+
+    results = engine.recommend(context, top_k=1)
+
+    assert len(results) == 1
+    assert results[0].spec.name == "summarize_documents_semantic"
+    assert results[0].breakdown.goal_match > 0
+
+
 def test_tool_builder_requires_contract_fields() -> None:
     planner = ToolBuilderPlanner()
     readiness = planner.assess_readiness(

@@ -113,6 +113,11 @@ class CognitiveAgent:
 
         tool_context = self.tool_runtime.build_project_tool_context(user_input)
         tool_matches = self.tool_discovery.recommend(tool_context, top_k=3)
+        routing_tool_matches = self._expand_direct_route_candidates(
+            user_input=user_input,
+            tool_context=tool_context,
+            initial_matches=tool_matches,
+        )
         loop_compactor = LoopContextCompactor(
             keep_recent_messages=self.config.agent.keep_recent_messages,
             compress_trigger=self.config.agent.compact_history_trigger,
@@ -132,7 +137,7 @@ class CognitiveAgent:
         gated_direct_call = self._apply_rl_policy_gate(
             suggestion=rl_suggestion,
             user_input=user_input,
-            tool_matches=tool_matches,
+            tool_matches=routing_tool_matches,
         )
 
         mood = self.emotion_engine.update_mood(user_input, related_memories)
@@ -152,7 +157,7 @@ class CognitiveAgent:
 
         direct_skill_call = gated_direct_call or SkillRouter.infer_direct_skill_call(
             user_input=user_input,
-            tool_matches=tool_matches,
+            tool_matches=routing_tool_matches,
             executable_tool_names=self._executable_tool_names(),
         )
         if direct_skill_call is not None:
@@ -795,6 +800,20 @@ class CognitiveAgent:
         if not base_brief.strip():
             return self._active_rl_gate_note
         return f"{base_brief}\n\n{self._active_rl_gate_note}"
+
+    def _expand_direct_route_candidates(
+        self,
+        *,
+        user_input: str,
+        tool_context: ProjectToolContext,
+        initial_matches: list[ToolMatchResult],
+    ) -> list[ToolMatchResult]:
+        if not any(hint in user_input.lower() for hint in ("直接调用", "现有工具", "please call", "use existing tool")):
+            return initial_matches
+        if any(match.spec.name in self._executable_tool_names() for match in initial_matches):
+            return initial_matches
+        expanded_top_k = max(8, len(self._executable_tool_names()) + 3)
+        return self.tool_discovery.recommend(tool_context, top_k=expanded_top_k)
 
     def _finalize_trace(
         self,

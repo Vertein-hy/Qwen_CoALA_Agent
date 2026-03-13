@@ -7,6 +7,7 @@ import re
 import shutil
 import subprocess
 import zipfile
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -36,11 +37,48 @@ XLSX_SUFFIXES = {".xlsx", ".xlsm", ".xltx", ".xltm"}
 PDF_SUFFIXES = {".pdf"}
 SUPPORTED_SUFFIXES = TEXT_SUFFIXES | DOCX_SUFFIXES | XLSX_SUFFIXES | PDF_SUFFIXES
 
+SUMMARY_SCOPES = {"all", "per_file", "global", "file"}
+
+ASCII_TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{2,}")
+CJK_TOKEN_RE = re.compile(r"[\u4e00-\u9fff]{2,}")
+STOPWORDS = {
+    "the",
+    "and",
+    "for",
+    "with",
+    "from",
+    "that",
+    "this",
+    "are",
+    "was",
+    "were",
+    "into",
+    "then",
+    "only",
+    "file",
+    "files",
+    "folder",
+    "summary",
+    "project",
+    "documents",
+    "current",
+    "report",
+    "route",
+    "routes",
+    "摘要",
+    "文档",
+    "文件",
+    "目录",
+    "项目",
+    "整体",
+    "输出",
+}
+
 
 @dataclass(frozen=True)
 class SummaryRequest:
     path: Path
-    scope: str = "all"
+    scope: str = "per_file"
     file_path: str = ""
     max_files: int = 20
 
@@ -74,27 +112,30 @@ class DocumentSummaryTool:
                 return "Document type is not supported."
             return self._render_single_file_summary(file_summary, target_path.parent)
 
-        if request.scope == "file" and request.file_path:
-            chosen = target_path / request.file_path
-            if not chosen.exists() or not chosen.is_file():
-                return "Requested file does not exist."
-            file_summary = self._summarize_file(chosen, root=target_path)
+        summaries = self._collect_summaries(target_path, request)
+        if isinstance(summaries, str):
+            return summaries
+
+        if request.scope == "global":
+            return self._render_global_summary(root=target_path, summaries=summaries)
+        return self._render_directory_summary(root=target_path, summaries=summaries)
+
+    def summarize_semantic(self, raw_input: str) -> str:
+        request = self._parse_request(raw_input)
+        target_path = self._resolve_target_path(request)
+        if target_path is None:
+            return "Document path does not exist."
+
+        if target_path.is_file():
+            file_summary = self._summarize_file(target_path, root=target_path.parent)
             if file_summary is None:
                 return "Document type is not supported."
-            return self._render_single_file_summary(file_summary, target_path)
+            return self._render_semantic_summary(root=target_path.parent, summaries=[file_summary])
 
-        files = self._collect_supported_files(target_path, max_files=request.max_files)
-        if not files:
-            return "No supported documents found."
-
-        summaries = [
-            summary
-            for summary in (self._summarize_file(path, root=target_path) for path in files)
-            if summary is not None
-        ]
-        if not summaries:
-            return "No supported documents found."
-        return self._render_directory_summary(root=target_path, summaries=summaries)
+        summaries = self._collect_summaries(target_path, request)
+        if isinstance(summaries, str):
+            return summaries
+        return self._render_semantic_summary(root=target_path, summaries=summaries)
 
     def _parse_request(self, raw_input: str) -> SummaryRequest:
         text = raw_input.strip()
@@ -103,9 +144,12 @@ class DocumentSummaryTool:
 
         if text.startswith("{"):
             payload = json.loads(text)
+            scope = str(payload.get("scope", "per_file")).strip().lower() or "per_file"
+            if scope not in SUMMARY_SCOPES:
+                scope = "per_file"
             return SummaryRequest(
                 path=Path(str(payload.get("path", "."))),
-                scope=str(payload.get("scope", "all")),
+                scope=scope,
                 file_path=str(payload.get("file_path", "")),
                 max_files=int(payload.get("max_files", 20) or 20),
             )
@@ -149,6 +193,29 @@ class DocumentSummaryTool:
                 continue
             files.append(path)
         return files
+
+    def _collect_summaries(self, target_path: Path, request: SummaryRequest) -> list[FileSummary] | str:
+        if request.scope == "file" and request.file_path:
+            chosen = target_path / request.file_path
+            if not chosen.exists() or not chosen.is_file():
+                return "Requested file does not exist."
+            file_summary = self._summarize_file(chosen, root=target_path)
+            if file_summary is None:
+                return "Document type is not supported."
+            return [file_summary]
+
+        files = self._collect_supported_files(target_path, max_files=request.max_files)
+        if not files:
+            return "No supported documents found."
+
+        summaries = [
+            summary
+            for summary in (self._summarize_file(path, root=target_path) for path in files)
+            if summary is not None
+        ]
+        if not summaries:
+            return "No supported documents found."
+        return summaries
 
     def _summarize_file(self, path: Path, *, root: Path) -> FileSummary | None:
         text, warning = self._read_document(path)
@@ -326,9 +393,7 @@ class DocumentSummaryTool:
     @staticmethod
     def _render_directory_summary(*, root: Path, summaries: Iterable[FileSummary]) -> str:
         items = list(summaries)
-        type_counts: dict[str, int] = {}
-        for item in items:
-            type_counts[item.file_type] = type_counts.get(item.file_type, 0) + 1
+        type_counts = _count_file_types(items)
 
         lines = [
             "# Directory Document Summary",
@@ -351,6 +416,80 @@ class DocumentSummaryTool:
             if item.warning:
                 lines.append(f"- Warning: {item.warning}")
         return "\n".join(lines)
+
+    @staticmethod
+    def _render_global_summary(*, root: Path, summaries: Iterable[FileSummary]) -> str:
+        items = list(summaries)
+        type_counts = _count_file_types(items)
+        top_titles = [item.title for item in sorted(items, key=lambda row: row.char_count, reverse=True)[:5]]
+
+        lines = [
+            "# Global Document Summary",
+            "",
+            f"- Root: `{root}`",
+            f"- Files summarized: {len(items)}",
+            f"- Types: {', '.join(f'{kind}={count}' for kind, count in sorted(type_counts.items()))}",
+            "",
+            "## Overview",
+            _compose_global_overview(items),
+            "",
+            "## Dominant Files",
+        ]
+        for title in top_titles:
+            lines.append(f"- {title}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _render_semantic_summary(*, root: Path, summaries: Iterable[FileSummary]) -> str:
+        items = list(summaries)
+        keywords = _extract_keywords(items)
+        overview = _compose_global_overview(items)
+        lines = [
+            "# Semantic Document Summary",
+            "",
+            f"- Root: `{root}`",
+            f"- Files analyzed: {len(items)}",
+            f"- Themes: {', '.join(keywords) if keywords else '(none)'}",
+            "",
+            "## Semantic Overview",
+            overview,
+            "",
+            "## Priority Files",
+        ]
+        for item in sorted(items, key=lambda row: row.char_count, reverse=True)[:5]:
+            lines.append(f"- {item.relative_path}: {item.summary}")
+        return "\n".join(lines)
+
+
+def _count_file_types(items: Iterable[FileSummary]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for item in items:
+        counts[item.file_type] = counts.get(item.file_type, 0) + 1
+    return counts
+
+
+def _compose_global_overview(items: list[FileSummary]) -> str:
+    if not items:
+        return "No readable content extracted."
+    lead = [item.summary for item in sorted(items, key=lambda row: row.char_count, reverse=True)[:3] if item.summary]
+    if not lead:
+        return "No readable content extracted."
+    return " ".join(lead)[:600]
+
+
+def _extract_keywords(items: list[FileSummary]) -> list[str]:
+    counter: Counter[str] = Counter()
+    for item in items:
+        text = f"{item.title}\n{item.summary}"
+        for token in ASCII_TOKEN_RE.findall(text.lower()):
+            if token in STOPWORDS:
+                continue
+            counter[token] += 1
+        for token in CJK_TOKEN_RE.findall(text):
+            if token in STOPWORDS:
+                continue
+            counter[token] += 1
+    return [token for token, _ in counter.most_common(8)]
 
 
 def _read_shared_strings(archive: zipfile.ZipFile) -> list[str]:

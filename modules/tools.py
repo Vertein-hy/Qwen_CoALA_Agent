@@ -62,6 +62,7 @@ class ToolBox:
         self.registry.register("read_file", self.read_file)
         self.registry.register("extract_http_routes", self.extract_http_routes)
         self.registry.register("summarize_documents", self.summarize_documents)
+        self.registry.register("summarize_documents_semantic", self.summarize_documents_semantic)
 
     def load_internalized_skills(self) -> None:
         """Load callables from skills/internalized/custom_skills.py.
@@ -104,11 +105,19 @@ class ToolBox:
             "3. read_file: read a file by relative path; if input contains '|', only the filename part is used.",
             "4. extract_http_routes: scan a project path and return a Markdown summary of HTTP routes.",
             "5. summarize_documents: summarize one file or all supported documents in a folder.",
+            "6. summarize_documents_semantic: build a second-stage global semantic summary from compressed document summaries.",
         ]
 
         custom_lines = []
         for name, func in self.registry.items():
-            if name in {"python_repl", "write_file", "read_file", "extract_http_routes", "summarize_documents"}:
+            if name in {
+                "python_repl",
+                "write_file",
+                "read_file",
+                "extract_http_routes",
+                "summarize_documents",
+                "summarize_documents_semantic",
+            }:
                 continue
             try:
                 sig = str(inspect.signature(func))
@@ -223,6 +232,9 @@ class ToolBox:
 
     def summarize_documents(self, raw_input: str) -> str:
         return self.document_summary.summarize(raw_input)
+
+    def summarize_documents_semantic(self, raw_input: str) -> str:
+        return self.document_summary.summarize_semantic(raw_input)
 
     @staticmethod
     def _strip_code_fence(code: str) -> str:

@@ -117,7 +117,25 @@ class ToolLifecycleRuntime:
                     "summarize ./docs",
                     '{"path":"./docs","scope":"file","file_path":"report.docx"}',
                 ),
-                tags=("document", "summary", "pdf", "docx", "xlsx", "folder", "deterministic_builtin"),
+                tags=("document", "summary", "pdf", "docx", "xlsx", "folder", "文档", "摘要", "目录", "整体", "deterministic_builtin"),
+            ),
+            ToolSpec(
+                name="summarize_documents_semantic",
+                purpose="Build a second-stage global summary over compressed document summaries and highlight dominant themes.",
+                inputs=(
+                    ToolIOField(
+                        name="path",
+                        type_name="string",
+                        required=False,
+                        description="File path or folder path. Defaults to current workspace.",
+                    ),
+                ),
+                outputs=(ToolIOField(name="semantic_summary", type_name="string"),),
+                examples=(
+                    "semantic summary for current project documents",
+                    '{"path":"./docs","scope":"global"}',
+                ),
+                tags=("document", "summary", "semantic", "global", "文档", "主题", "整体", "摘要", "全局", "deterministic_builtin"),
             ),
         )
         for spec in builtin_specs:

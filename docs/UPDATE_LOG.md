@@ -233,3 +233,21 @@
 - `requirements.txt`
 - `tests/test_tools.py`
 - `tests/test_tool_lifecycle.py`
+
+### `2026-03-13T13:42:00+08:00` `feat: add global and semantic document summary modes`
+
+更新了什么
+- `summarize_documents` 新增 `global` 作用域，用于输出目录级整体摘要。
+- 新增第二阶段工具 `summarize_documents_semantic`，基于已压缩的文件摘要再做主题和全局总结。
+- 仍保持 built-in 形态，不把原始大文档直接塞进小模型上下文。
+
+对应文档
+- `docs/UPDATE_LOG.md`
+- `docs/DOCUMENT_SUMMARY_TOOL.md`
+
+对应代码位置
+- `modules/document_summary.py`
+- `modules/tools.py`
+- `core/tool_lifecycle_runtime.py`
+- `tests/test_tools.py`
+- `tests/test_tool_lifecycle.py`

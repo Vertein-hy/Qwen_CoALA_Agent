@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import zipfile
 
@@ -128,6 +129,36 @@ def test_summarize_documents_returns_directory_summary(tmp_path: Path) -> None:
     assert "readme.md" in output
     assert "report.txt" in output
     assert "Files summarized: 2" in output
+
+
+def test_summarize_documents_supports_global_scope(tmp_path: Path) -> None:
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir()
+    (docs_dir / "a.md").write_text("# API Notes\nroute summary\n", encoding="utf-8")
+    (docs_dir / "b.txt").write_text("Budget review\nstatus: approved\n", encoding="utf-8")
+    tools = ToolBox(data_dir=str(tmp_path / "data"))
+
+    output = tools.summarize_documents(
+        json.dumps({"path": str(docs_dir), "scope": "global"}, ensure_ascii=False)
+    )
+
+    assert "# Global Document Summary" in output
+    assert "## Overview" in output
+    assert "Files summarized: 2" in output
+
+
+def test_summarize_documents_semantic_returns_theme_summary(tmp_path: Path) -> None:
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir()
+    (docs_dir / "api.md").write_text("# API Review\nHTTP route coverage\n", encoding="utf-8")
+    (docs_dir / "ops.txt").write_text("Service status stable\nAPI checks passed\n", encoding="utf-8")
+    tools = ToolBox(data_dir=str(tmp_path / "data"))
+
+    output = tools.summarize_documents_semantic(str(docs_dir))
+
+    assert "# Semantic Document Summary" in output
+    assert "Themes:" in output
+    assert "Priority Files" in output
 
 
 def test_summarize_documents_reads_docx_file(tmp_path: Path) -> None:
