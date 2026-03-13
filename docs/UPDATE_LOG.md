@@ -1,150 +1,51 @@
 # 更新日志
 
-本文档记录近阶段的重要代码变更。每条记录固定包含三部分：
+记录格式固定为三段：
 - 更新了什么
 - 对应文档
 - 对应代码位置
 
 ## 2026-03-12
 
-## 2026-03-13
-
-### `2026-03-13T11:06:40+08:00` `feat: add skill workbench before internalization`
+### `2026-03-12T15:53:13+08:00` `refactor: split agent prompt and tool runtime`
 
 更新了什么
-- 新增 `SkillWorkbench`，在工具晋升为正式 skill 之前，先执行独立编译、函数存在性检查和签名校验。
-- `global` 级工具现在不会直接写入 `skills/internalized/`，而是先通过 workbench 验证其函数名和 `ToolSpec` 必需输入是否一致。
-- 保持和当前 Windows 环境兼容：workbench 不依赖系统临时目录写文件，而是在独立 namespace 中完成逻辑隔离校验。
-- 新增 workbench 单测，并验证现有 global promotion 内化链路仍然可用。
-- 全量测试结果：`pytest -q` -> `60 passed in 1.36s`
+- 将主协调器拆分为提示词构建和工具生命周期运行时，降低 `core/agent.py` 的复杂度。
+- 明确主程序入口和模块边界，避免后续继续在单文件中堆积逻辑。
 
 对应文档
+- `docs/ENTRYPOINTS.md`
 - `docs/UPDATE_LOG.md`
 
 对应代码位置
-- `skills/workbench.py`
-- `skills/contracts.py`
+- `core/agent.py`
+- `core/agent_prompt_builder.py`
 - `core/tool_lifecycle_runtime.py`
-- `tests/test_skill_workbench.py`
-- `tests/test_agent_trace.py`
 
-### `2026-03-13T10:58:00+08:00` `fix: improve cjk tool matching and safer python repl escaping`
+### `2026-03-12T16:47:56+08:00` `feat: stabilize small-model tool routing and loop guard`
 
 更新了什么
-- 修复 `python_repl` 对转义换行的处理：现在只在字符串字面量之外解码 `\\n`、`\\t`，避免把 `print('\n'.join(...))` 这类合法代码改坏。
-- 提升工具发现的中文/CJK token 粒度，支持对“提取 HTTP API 路由”“markdown 摘要”这类任务做更稳定的语义匹配。
-- 为 `extract_http_routes` 增加中文任务匹配回归测试，确保该任务能进入高置信自动路由。
-- 全量测试结果：`pytest -q` -> `57 passed in 1.21s`
+- 增加小模型循环保护，提前终止重复响应和重复工具循环。
+- 强化直接工具路由，减少明显任务还要依赖自由 ReAct 收尾的情况。
 
 对应文档
 - `docs/UPDATE_LOG.md`
 
 对应代码位置
-- `modules/tools.py`
-- `skills/tool_discovery.py`
-- `tests/test_tools.py`
-- `tests/test_tool_lifecycle.py`
-
-### `2026-03-13T10:41:53+08:00` `feat: add deterministic http route extraction tool`
-
-更新了什么
-- 新增内置工具 `extract_http_routes`，用于扫描当前项目中的 Python Web 路由并输出 Markdown 摘要。
-- 将该工具注册到工具知识库，并标记为 `deterministic_builtin`，让它可以被高置信自动路由。
-- 当用户任务明显是在“提取 HTTP API 路由”时，Agent 会优先走货架式内置工具，而不是让小模型临时写 `python_repl`。
-- 新增内置工具测试和 Agent 直达路由测试。
-- 全量测试结果：`pytest -q` -> `55 passed in 1.14s`
-
-对应文档
-- `docs/UPDATE_LOG.md`
-
-对应代码位置
-- `modules/tools.py`
-- `core/tool_lifecycle_runtime.py`
+- `core/agent.py`
+- `core/agent_prompt_builder.py`
+- `core/loop_guard.py`
 - `core/skill_routing.py`
-- `tests/test_tools.py`
+- `skills/selector.py`
+- `config/settings.py`
 - `tests/test_agent_trace.py`
-
-### `2026-03-13T10:20:33+08:00` `fix: sanitize leaked react inputs for small-model tool calls`
-
-更新了什么
-- `python_repl` 现在会把小模型常见的单行 `\\n`、`\\t` 转义代码还原为真实换行和缩进，避免 `unexpected character after line continuation character`。
-- `ReActParser` 在 `Action Input` 中遇到 `assistant:`、`user:`、新一轮 `Action:` 时会立即截断，防止把整段历史污染进工具输入。
-- 新增解析器和工具回归测试，覆盖角色泄漏和转义换行两类小模型常见脏输出。
-- 全量测试结果：`pytest -q` -> `53 passed in 1.59s`
-
-对应文档
-- `docs/UPDATE_LOG.md`
-
-对应代码位置
-- `core/react_parser.py`
-- `modules/tools.py`
-- `tests/test_react_parser.py`
-- `tests/test_tools.py`
-
-### `2026-03-12T17:36:43+08:00` `fix: tolerate model style read_file inputs and rebuild web console page`
-
-更新了什么
-- `read_file` 兼容模型常见输入格式，例如 `main.py|content`，会自动只取文件路径部分。
-- `read_file` 优先按当前项目工作目录查找文件，再回落到 `data/` 目录，避免仓库根目录文件读取失败。
-- Web 控制台静态页整体重写为干净 UTF-8，修复右侧栏挤压、长 trace 溢出、不换行和页面文案乱码问题。
-
-对应文档
-- `docs/UPDATE_LOG.md`
-
-对应代码位置
-- `modules/tools.py`
-- `apps/web_console/static/index.html`
-- `tests/test_tools.py`
-
-### `2026-03-12T17:26:39+08:00` `fix: stop Action Input before Final Answer`
-
-更新了什么
-- 修复 `ReActParser` 会把同一轮回复中的 `Final Answer` 误吞进 `Action Input` 的问题。
-- 避免 `python_repl` 执行包含 markdown、解释文本或 emoji 的混合内容，减少语法错误和死循环。
-- 补充解析器回归测试。
-
-对应文档
-- `docs/UPDATE_LOG.md`
-
-对应代码位置
-- `core/react_parser.py`
-- `tests/test_react_parser.py`
-
-### `2026-03-12T17:18:42+08:00` `perf: make python_repl no-stdout feedback actionable`
-
-更新了什么
-- `python_repl` 在执行成功但没有 stdout 时，返回明确提示：如果需要可见结果，请使用 `print(...)`。
-- 让小模型在下一轮更容易修正执行方式，而不是继续盲目重复。
-- 补充针对无输出场景的回归测试。
-
-对应文档
-- `docs/UPDATE_LOG.md`
-
-对应代码位置
-- `modules/tools.py`
-- `tests/test_tools.py`
-
-### `2026-03-12T17:16:27+08:00` `fix: execute triple-quoted python_repl inputs`
-
-更新了什么
-- `python_repl` 现在支持执行 `''' ... '''` 和 `\"\"\" ... \"\"\"` 包裹的代码输入。
-- 保持对 ```python fenced block``` 的兼容。
-- 修复模型按 ReAct 输出三引号代码时“看起来执行成功，实际上没有运行”的问题。
-
-对应文档
-- `docs/UPDATE_LOG.md`
-
-对应代码位置
-- `modules/tools.py`
-- `tests/test_tools.py`
 
 ### `2026-03-12T17:03:15+08:00` `feat: expose web trace and generalize direct routing`
 
 更新了什么
-- `POST /api/chat` 现在返回完整 trace：`Action / Observation / Tool Spec / Final Result`。
-- Web 控制台新增 trace 展示区，可直接查看候选工具、工具匹配和每轮执行步骤。
-- “直接技能路由”从数学工具特判扩展为基于 `ToolSpec` 输入约束的通用路由。
-- internalized skill 的输入字段由真实函数签名推导，不再固定为 `user_request`。
+- Web 控制台开始返回结构化 trace。
+- trace 中可观察 `Action / Observation / Tool Spec / Final Result`。
+- 直接路由从特定数学工具扩展为基于 `ToolSpec` 的通用路由。
 
 对应文档
 - `docs/WEB_CONSOLE.md`
@@ -160,130 +61,138 @@
 - `tests/test_agent_trace.py`
 - `tests/test_web_console.py`
 
-### `2026-03-12T16:47:56+08:00` `feat: stabilize small-model tool routing and loop guard`
+### `2026-03-12T17:16:27+08:00` `fix: execute triple-quoted python_repl inputs`
 
 更新了什么
-- 收紧小模型提示词格式，强调 `Action`、`Action Input`、`tool_spec`、`Final Answer` 的结构化输出。
-- 增加循环保护：重复响应、重复工具执行、重复失败时提前熔断，而不是一直打满 `max_steps`。
-- 对高置信候选工具增加确定性路由和快速收尾逻辑。
+- `python_repl` 开始正确执行三引号和 fenced code block 包裹的代码片段。
 
 对应文档
 - `docs/UPDATE_LOG.md`
 
 对应代码位置
-- `core/agent.py`
-- `core/agent_prompt_builder.py`
-- `core/loop_guard.py`
-- `core/skill_routing.py`
-- `skills/selector.py`
-- `config/settings.py`
-- `tests/test_agent_trace.py`
+- `modules/tools.py`
+- `tests/test_tools.py`
 
-### `2026-03-12T15:53:13+08:00` `refactor: split agent prompt and tool runtime`
+### `2026-03-12T17:18:42+08:00` `perf: make python_repl no-stdout feedback actionable`
 
 更新了什么
-- 将提示词拼装从主 Agent 协调器中拆出到独立模块。
-- 将工具生命周期流程拆出到运行时模块，降低 `core/agent.py` 的复杂度。
-- 固定主协调器职责：编排而不是堆叠所有实现细节。
+- `python_repl` 在无 stdout 时返回更可操作的提示，鼓励模型使用 `print(...)` 暴露中间结果。
 
 对应文档
 - `docs/UPDATE_LOG.md`
-- `docs/ENTRYPOINTS.md`
 
 对应代码位置
-- `core/agent.py`
-- `core/agent_prompt_builder.py`
+- `modules/tools.py`
+- `tests/test_tools.py`
+
+### `2026-03-12T17:26:39+08:00` `fix: stop Action Input before Final Answer`
+
+更新了什么
+- `ReActParser` 在解析 `Action Input` 时遇到 `Final Answer:` 会停止，避免最终答复污染工具输入。
+
+对应文档
+- `docs/UPDATE_LOG.md`
+
+对应代码位置
+- `core/react_parser.py`
+- `tests/test_react_parser.py`
+
+### `2026-03-12T17:36:43+08:00` `fix: tolerate model style read_file inputs and rebuild web console page`
+
+更新了什么
+- `read_file` 兼容模型常见的 `main.py|content` 风格输入。
+- 重建 Web 控制台静态页，修正布局溢出与 trace 展示问题。
+
+对应文档
+- `docs/UPDATE_LOG.md`
+
+对应代码位置
+- `modules/tools.py`
+- `apps/web_console/static/index.html`
+- `tests/test_tools.py`
+
+## 2026-03-13
+
+### `2026-03-13T10:20:33+08:00` `fix: sanitize leaked react inputs for small models`
+
+更新了什么
+- 修正小模型把 `assistant:`、`user:`、新一轮 `Action:` 泄漏进工具输入的问题。
+- `python_repl` 对转义换行和缩进的处理更稳，减少语法噪声。
+
+对应文档
+- `docs/UPDATE_LOG.md`
+
+对应代码位置
+- `core/react_parser.py`
+- `modules/tools.py`
+- `tests/test_react_parser.py`
+- `tests/test_tools.py`
+
+### `2026-03-13T10:41:53+08:00` `feat: add deterministic http route extraction tool`
+
+更新了什么
+- 新增确定性内置工具 `extract_http_routes`，将 HTTP API 路由提取从现场写 Python 代码改为货架式调用。
+- 接入直接路由链路，降低小模型在项目扫描任务上的格式不稳定性。
+
+对应文档
+- `docs/UPDATE_LOG.md`
+
+对应代码位置
+- `modules/tools.py`
 - `core/tool_lifecycle_runtime.py`
-
-### `2026-03-12T15:38:01+08:00` `feat: promote registered tools and document entrypoints`
-
-更新了什么
-- 打通 `ToolRegistry -> SkillManager` 的晋升桥接。
-- 固化程序入口、测试入口和测试矩阵文档。
-- 统一说明哪些入口负责 CLI、Web 控制台和测试执行。
-
-对应文档
-- `docs/ENTRYPOINTS.md`
-- `docs/TEST_MATRIX.md`
-- `docs/DOCS_INDEX.md`
-- `README.md`
-
-对应代码位置
-- `core/agent.py`
-- `skills/tool_registry.py`
-- `skills/tool_contracts.py`
-- `config/settings.py`
-- `scripts/run_tests.py`
+- `core/skill_routing.py`
+- `tests/test_tools.py`
 - `tests/test_agent_trace.py`
 
-### `2026-03-12T15:27:41+08:00` `feat: persist tool registry and promotion history`
+### `2026-03-13T10:58:00+08:00` `fix: improve cjk tool matching and safer python repl escaping`
 
 更新了什么
-- `ToolSpec` 和执行记录开始持久化到注册表。
-- 引入晋升策略，区分 episode、project、global 三类工具阶段。
-- 为后续“完成一次任务后是否内化”为正式技能铺平数据结构。
+- 工具发现支持 CJK n-gram，提高中文任务对内置工具的命中率。
+- `python_repl` 对字符串字面量中的 `\\n` 和 `\\t` 处理更安全。
 
 对应文档
-- `docs/TOOL_LIFECYCLE_ARCHITECTURE.md`
-- `docs/TEST_MATRIX.md`
-- `docs/ENTRYPOINTS.md`
-
-对应代码位置
-- `skills/tool_registry.py`
-- `skills/tool_contracts.py`
-- `skills/tool_promotion.py`
-- `core/agent.py`
-- `tests/test_agent_trace.py`
-- `tests/test_tool_lifecycle.py`
-
-### `2026-03-12T15:16:37+08:00` `feat: compact loop context and repair tool specs`
-
-更新了什么
-- 增加 `[Execution Brief]` 和 `[Compressed Loop History]`，缓解小模型上下文不足和遗忘当前目标的问题。
-- 支持 teacher 修复 `ToolSpec` 后自动回到主流程继续执行。
-- 为闭环工具生命周期补上上下文压缩与契约修复能力。
-
-对应文档
-- `docs/TOOL_LIFECYCLE_ARCHITECTURE.md`
 - `docs/UPDATE_LOG.md`
 
 对应代码位置
-- `core/context_compactor.py`
-- `core/agent.py`
-- `config/settings.py`
-- `tests/test_agent_trace.py`
-
-### `2026-03-12T15:08:31+08:00` `feat: close tool-spec loop and stabilize pytest`
-
-更新了什么
-- 固化仓库内测试临时目录，修复 Windows 下 `pytest` 临时目录权限问题。
-- 新增 `ToolSpec` 解析器，将模型输出从文本提示推进到结构化契约。
-- 打通 `ToolSpec -> teacher -> 回到主流程` 的第一轮闭环。
-
-对应文档
-- `docs/TEST_MATRIX.md`
-
-对应代码位置
-- `pytest.ini`
-- `tests/conftest.py`
-- `skills/tool_parser.py`
-- `core/agent.py`
-- `tests/test_agent_trace.py`
-
-### `2026-03-12T14:55:56+08:00` `feat: scaffold tool lifecycle architecture`
-
-更新了什么
-- 初始化 `ToolSpec`、`TeacherRequest`、`ToolExecutionRecord` 等核心数据结构。
-- 拆出 discovery、builder、escalation、promotion 等职责模块。
-- 建立“小模型优先，大模型兜底，成功后内化”的架构骨架。
-
-对应文档
-- `docs/TOOL_LIFECYCLE_ARCHITECTURE.md`
-
-对应代码位置
-- `skills/tool_contracts.py`
+- `modules/tools.py`
 - `skills/tool_discovery.py`
-- `skills/tool_builder.py`
-- `skills/tool_escalation.py`
-- `skills/tool_promotion.py`
+- `tests/test_tools.py`
 - `tests/test_tool_lifecycle.py`
+
+### `2026-03-13T11:06:40+08:00` `feat: add skill workbench before internalization`
+
+更新了什么
+- 新增 `SkillWorkbench`，在技能正式内化前执行隔离校验。
+- workbench 当前会检查语法、函数存在性、函数名一致性和必需参数签名。
+
+对应文档
+- `docs/UPDATE_LOG.md`
+
+对应代码位置
+- `skills/workbench.py`
+- `skills/contracts.py`
+- `core/tool_lifecycle_runtime.py`
+- `tests/test_skill_workbench.py`
+- `tests/test_agent_trace.py`
+
+### `2026-03-13T12:20:00+08:00` `feat: add rl decision-layer scaffolding`
+
+更新了什么
+- 新增 RL 决策层脚手架，用于从 trace 中导出离线样本、训练轻量策略并在运行时给出旁路建议。
+- RL 当前只做建议，不直接接管主路由，目标是先积累观测数据再决定是否接管。
+- Web trace 会记录一条 `RL Policy Suggestion`，便于在控制台中观察策略建议是否合理。
+
+对应文档
+- `docs/UPDATE_LOG.md`
+- `docs/RL_DECISION_LAYER.md`
+
+对应代码位置
+- `rl/__init__.py`
+- `rl/contracts.py`
+- `rl/decision_dataset.py`
+- `rl/policy.py`
+- `rl/runtime_router.py`
+- `scripts/export_rl_dataset.py`
+- `scripts/run_tests.py`
+- `core/agent.py`
+- `tests/test_rl.py`

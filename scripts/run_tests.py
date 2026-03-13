@@ -23,6 +23,7 @@ SUITES: dict[str, list[str]] = {
     ],
     "memory": ["tests/test_memory.py"],
     "llm": ["tests/test_llm.py", "tests/test_openai_compat_fallback.py", "tests/test_router.py"],
+    "rl": ["tests/test_rl.py"],
 }
 
 

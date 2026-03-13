@@ -21,6 +21,7 @@ from memory.vector_store import MemorySystem
 from memory.working_memory import WorkingMemory
 from modules.emotion import EmotionEngine
 from modules.tools import ToolBox
+from rl.runtime_router import RLRuntimeRouter
 from skills.event_logger import SkillEventLogger
 from skills.manager import SkillManager
 from skills.selector import SkillCandidate, SkillSelector
@@ -85,6 +86,7 @@ class CognitiveAgent:
         )
         self.tool_knowledge_base = self.tool_runtime.build_tool_knowledge_base()
         self.tool_discovery = ToolDiscoveryEngine(self.tool_knowledge_base)
+        self.rl_runtime_router = RLRuntimeRouter()
         self._active_trace: AgentTraceRecorder | None = None
 
         empty_context = self.tool_runtime.build_project_tool_context("")
@@ -119,6 +121,11 @@ class CognitiveAgent:
         )
         loop_compactor.start_run(goal=user_input, tool_matches=tool_matches)
         self._record_trace_candidates(skill_candidates=skill_candidates, tool_matches=tool_matches)
+        self._record_rl_policy_suggestion(
+            user_input=user_input,
+            skill_candidates=skill_candidates,
+            tool_matches=tool_matches,
+        )
 
         mood = self.emotion_engine.update_mood(user_input, related_memories)
         self._refresh_system_prompt(
@@ -679,6 +686,37 @@ class CognitiveAgent:
             title=title,
             content=content,
             metadata=metadata,
+        )
+
+    def _record_rl_policy_suggestion(
+        self,
+        *,
+        user_input: str,
+        skill_candidates: list[SkillCandidate],
+        tool_matches: list[ToolMatchResult],
+    ) -> None:
+        suggestion = self.rl_runtime_router.suggest(
+            user_input=user_input,
+            skill_candidates=[
+                {"name": item.name, "score": item.score}
+                for item in skill_candidates
+            ],
+            tool_matches=[
+                {"name": item.spec.name, "score": item.breakdown.total_score}
+                for item in tool_matches
+            ],
+            steps=[],
+            route_hint="pre_loop",
+        )
+        self._record_trace_step(
+            kind="policy",
+            title="RL Policy Suggestion",
+            content=(
+                f"action={suggestion.action.value} "
+                f"confidence={suggestion.confidence:.4f} "
+                f"rationale={suggestion.rationale}"
+            ),
+            metadata={"scores": suggestion.scores},
         )
 
     def _finalize_trace(

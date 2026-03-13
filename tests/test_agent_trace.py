@@ -596,6 +596,19 @@ def test_http_route_request_uses_deterministic_builtin_tool(tmp_path: Path) -> N
     assert "# HTTP API Routes" in str(trace["reply"])
     assert "| GET | /health | health | api_app.py |" in str(trace["reply"])
     step_kinds = [item["kind"] for item in trace["steps"]]
+    assert "policy" in step_kinds
     assert "direct_route" in step_kinds
     assert "action" in step_kinds
     assert "observation" in step_kinds
+
+
+def test_trace_contains_rl_policy_suggestion() -> None:
+    memory = FakeMemory()
+    agent = _build_agent(llm=FinalAnswerLLM(), memory=memory)
+
+    trace = agent.run_with_trace("请直接调用现有工具计算 1 到 10 的整数和，只返回结果。")
+
+    policy_steps = [item for item in trace["steps"] if item["kind"] == "policy"]
+    assert policy_steps
+    assert "action=" in policy_steps[0]["content"]
+    assert "scores" in policy_steps[0]["metadata"]
