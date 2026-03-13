@@ -66,6 +66,31 @@ python scripts/export_rl_dataset.py --input data/traces.jsonl --output data/rl_s
   - 在进入主循环前记录一条 `RL Policy Suggestion`
   - 便于在 Web 控制台中观察 RL 策略是否合理
 
+## 运行时门控
+
+当前新增了一个默认关闭的运行时门控：
+
+- `COALA_AGENT_RL_GATE_ENABLED`
+- `COALA_AGENT_RL_GATE_MIN_CONFIDENCE`
+
+门控策略如下：
+
+- `direct_tool`
+  - 当 RL 置信度达到阈值时，可以提前接管直接工具路由
+  - 这类接管仍然要求工具参数能被确定性绑定
+
+- `build_tool`
+  - 不直接改写主流程
+  - 只会向系统提示中追加“优先输出 Tool Spec”的强约束
+
+- `ask_teacher`
+  - 不直接强制升级
+  - 只会在系统提示中追加“如果 Tool Spec 不完整或链路停滞，尽早求助 teacher”的强约束
+
+这样做的目的很明确：
+- 先验证 RL 建议是否稳定
+- 避免一上来就把主路由完全交给一个还在早期阶段的策略
+
 ## 当前边界
 
 当前 RL 只做三件事：

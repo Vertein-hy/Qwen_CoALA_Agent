@@ -68,6 +68,7 @@ class SkillRouter:
         user_input: str,
         tool_matches: list[ToolMatchResult],
         executable_tool_names: set[str],
+        allow_policy_override: bool = False,
     ) -> DirectSkillCall | None:
         normalized = user_input.strip().lower()
         if not normalized:
@@ -90,9 +91,9 @@ class SkillRouter:
         has_direct_hint = any(hint in normalized for hint in cls._DIRECT_HINTS)
         has_auto_route_tag = bool(cls._AUTO_ROUTE_TAGS & set(top_match.spec.tags))
         if not has_direct_hint:
-            if not has_auto_route_tag:
+            if not allow_policy_override and not has_auto_route_tag:
                 return None
-            if top_match.breakdown.total_score < cls._AUTO_ROUTE_MIN_SCORE:
+            if not allow_policy_override and top_match.breakdown.total_score < cls._AUTO_ROUTE_MIN_SCORE:
                 return None
 
         bound_input = cls._bind_tool_input(user_input=user_input, spec=top_match.spec)

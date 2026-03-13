@@ -38,8 +38,10 @@ from config.settings import AgentConfig, AppConfig, SkillConfig
 from core.agent import CognitiveAgent
 from core.contracts import ChatResult
 from modules.tools import ToolBox
+from rl.contracts import DecisionAction, PolicySuggestion
 from skills.manager import SkillManager
 from skills.tool_registry import ToolRegistry
+from skills.tool_contracts import ToolIOField, ToolMatchBreakdown, ToolMatchResult, ToolSpec
 
 
 class FakeMemory:
@@ -100,6 +102,14 @@ class FakeEvolver:
     @staticmethod
     def evolve(user_intent: str, successful_code: str) -> None:
         return None
+
+
+class StubRLRuntimeRouter:
+    def __init__(self, suggestion: PolicySuggestion) -> None:
+        self.suggestion = suggestion
+
+    def suggest(self, **_: object) -> PolicySuggestion:
+        return self.suggestion
 
 
 @dataclass
@@ -612,3 +622,83 @@ def test_trace_contains_rl_policy_suggestion() -> None:
     assert policy_steps
     assert "action=" in policy_steps[0]["content"]
     assert "scores" in policy_steps[0]["metadata"]
+
+
+def test_rl_gate_can_force_direct_tool_route() -> None:
+    memory = FakeMemory()
+    config = AppConfig(
+        agent=AgentConfig(
+            max_steps=3,
+            memory_top_k=3,
+            default_temperature=0.1,
+            rl_gate_enabled=True,
+            rl_gate_min_confidence=0.1,
+        ),
+        skills=SkillConfig(enable_event_log=False),
+    )
+    agent = _build_agent(llm=FinalAnswerLLM(), memory=memory, config=config)
+    agent.rl_runtime_router = StubRLRuntimeRouter(
+        PolicySuggestion(
+            action=DecisionAction.DIRECT_TOOL,
+            confidence=1.0,
+            rationale="test_gate",
+            scores={DecisionAction.DIRECT_TOOL.value: 1.0},
+        )
+    )
+    agent._reload_tool_runtime_state = lambda: None  # type: ignore[method-assign]
+    agent.tool_discovery.recommend = lambda context, top_k=3: [  # type: ignore[method-assign]
+        ToolMatchResult(
+            spec=ToolSpec(
+                name="calc_sum_n",
+                purpose="Return the sum from 1 to n.",
+                inputs=(ToolIOField(name="n", type_name="int"),),
+                outputs=(ToolIOField(name="result", type_name="int"),),
+            ),
+            breakdown=ToolMatchBreakdown(
+                goal_match=2.0,
+                io_match=2.0,
+                env_match=1.0,
+                history_match=0.5,
+            ),
+            rationale="test_manual_match",
+        )
+    ]
+    agent._executable_tool_names = lambda: {"calc_sum_n"}  # type: ignore[method-assign]
+
+    trace = agent.run_with_trace("请计算 1 到 10 的整数和")
+
+    assert trace["route"] == "deterministic_skill_router"
+    assert trace["reply"] == "55"
+    step_kinds = [item["kind"] for item in trace["steps"]]
+    assert "policy_gate" in step_kinds
+    direct_route_step = next(item for item in trace["steps"] if item["kind"] == "direct_route")
+    assert direct_route_step["metadata"]["reason"] == "rl_policy_gate"
+
+
+def test_rl_gate_can_inject_build_tool_instruction_into_system_prompt() -> None:
+    memory = FakeMemory()
+    config = AppConfig(
+        agent=AgentConfig(
+            max_steps=3,
+            memory_top_k=3,
+            default_temperature=0.1,
+            rl_gate_enabled=True,
+            rl_gate_min_confidence=0.1,
+        ),
+        skills=SkillConfig(enable_event_log=False),
+    )
+    agent = _build_agent(llm=FinalAnswerLLM(), memory=memory, config=config)
+    agent.rl_runtime_router = StubRLRuntimeRouter(
+        PolicySuggestion(
+            action=DecisionAction.BUILD_TOOL,
+            confidence=1.0,
+            rationale="test_gate",
+            scores={DecisionAction.BUILD_TOOL.value: 1.0},
+        )
+    )
+
+    _ = agent.run_with_trace("请为当前项目定义一个新的 Tool Spec")
+
+    system_prompt = agent.working_memory.get_context()[0]["content"]
+    assert "[RL Decision Gate]" in system_prompt
+    assert "prefer emitting a Tool Spec" in system_prompt

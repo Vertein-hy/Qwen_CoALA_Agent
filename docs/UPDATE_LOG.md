@@ -196,3 +196,20 @@
 - `scripts/run_tests.py`
 - `core/agent.py`
 - `tests/test_rl.py`
+
+### `2026-03-13T12:48:00+08:00` `feat: add gated rl runtime routing`
+
+更新了什么
+- 将 RL 建议接成一个默认关闭的运行时门控。
+- `direct_tool` 高置信建议现在可以直接接管工具路由。
+- `build_tool / ask_teacher` 高置信建议会写入执行简报，作为小模型的强约束提示，而不是直接重写整个主循环。
+
+对应文档
+- `docs/UPDATE_LOG.md`
+- `docs/RL_DECISION_LAYER.md`
+
+对应代码位置
+- `config/settings.py`
+- `core/agent.py`
+- `core/skill_routing.py`
+- `tests/test_agent_trace.py`

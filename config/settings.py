@@ -113,6 +113,8 @@ class AgentConfig:
     default_seed: int | None = None
     repeated_response_limit: int = 2
     repeated_tool_cycle_limit: int = 2
+    rl_gate_enabled: bool = False
+    rl_gate_min_confidence: float = 0.75
 
 
 @dataclass(frozen=True)
@@ -237,6 +239,10 @@ def load_config() -> AppConfig:
         ),
         repeated_tool_cycle_limit=int(
             os.getenv("COALA_AGENT_REPEATED_TOOL_CYCLE_LIMIT", "2")
+        ),
+        rl_gate_enabled=_bool_from_env("COALA_AGENT_RL_GATE_ENABLED", False),
+        rl_gate_min_confidence=float(
+            os.getenv("COALA_AGENT_RL_GATE_MIN_CONFIDENCE", "0.75")
         ),
     )
 

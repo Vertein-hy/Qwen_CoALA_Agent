@@ -21,6 +21,7 @@ from memory.vector_store import MemorySystem
 from memory.working_memory import WorkingMemory
 from modules.emotion import EmotionEngine
 from modules.tools import ToolBox
+from rl.contracts import DecisionAction, PolicySuggestion
 from rl.runtime_router import RLRuntimeRouter
 from skills.event_logger import SkillEventLogger
 from skills.manager import SkillManager
@@ -88,6 +89,7 @@ class CognitiveAgent:
         self.tool_discovery = ToolDiscoveryEngine(self.tool_knowledge_base)
         self.rl_runtime_router = RLRuntimeRouter()
         self._active_trace: AgentTraceRecorder | None = None
+        self._active_rl_gate_note = ""
 
         empty_context = self.tool_runtime.build_project_tool_context("")
         self._refresh_system_prompt(
@@ -121,9 +123,15 @@ class CognitiveAgent:
         )
         loop_compactor.start_run(goal=user_input, tool_matches=tool_matches)
         self._record_trace_candidates(skill_candidates=skill_candidates, tool_matches=tool_matches)
-        self._record_rl_policy_suggestion(
+        self._active_rl_gate_note = ""
+        rl_suggestion = self._record_rl_policy_suggestion(
             user_input=user_input,
             skill_candidates=skill_candidates,
+            tool_matches=tool_matches,
+        )
+        gated_direct_call = self._apply_rl_policy_gate(
+            suggestion=rl_suggestion,
+            user_input=user_input,
             tool_matches=tool_matches,
         )
 
@@ -134,7 +142,7 @@ class CognitiveAgent:
             skill_candidates=skill_candidates,
             tool_context=tool_context,
             tool_matches=tool_matches,
-            loop_brief=loop_compactor.build_brief(),
+            loop_brief=self._compose_loop_brief(loop_compactor.build_brief()),
         )
         self.working_memory.add_message("user", user_input)
 
@@ -142,7 +150,7 @@ class CognitiveAgent:
         tool_steps = 0
         active_contract: ToolSpec | None = None
 
-        direct_skill_call = SkillRouter.infer_direct_skill_call(
+        direct_skill_call = gated_direct_call or SkillRouter.infer_direct_skill_call(
             user_input=user_input,
             tool_matches=tool_matches,
             executable_tool_names=self._executable_tool_names(),
@@ -362,7 +370,7 @@ class CognitiveAgent:
             skill_candidates=skill_candidates,
             tool_context=tool_context,
             tool_matches=tool_matches,
-            loop_brief=loop_compactor.build_brief(),
+            loop_brief=self._compose_loop_brief(loop_compactor.build_brief()),
         )
         if messages and messages[0].get("role") == "system":
             messages[0] = dict(self.working_memory.get_context()[0])
@@ -694,7 +702,7 @@ class CognitiveAgent:
         user_input: str,
         skill_candidates: list[SkillCandidate],
         tool_matches: list[ToolMatchResult],
-    ) -> None:
+    ) -> PolicySuggestion:
         suggestion = self.rl_runtime_router.suggest(
             user_input=user_input,
             skill_candidates=[
@@ -718,6 +726,75 @@ class CognitiveAgent:
             ),
             metadata={"scores": suggestion.scores},
         )
+        return suggestion
+
+    def _apply_rl_policy_gate(
+        self,
+        *,
+        suggestion: PolicySuggestion,
+        user_input: str,
+        tool_matches: list[ToolMatchResult],
+    ) -> DirectSkillCall | None:
+        if not self.config.agent.rl_gate_enabled:
+            return None
+        if suggestion.confidence < self.config.agent.rl_gate_min_confidence:
+            return None
+
+        if suggestion.action is DecisionAction.DIRECT_TOOL:
+            direct_skill_call = SkillRouter.infer_direct_skill_call(
+                user_input=user_input,
+                tool_matches=tool_matches,
+                executable_tool_names=self._executable_tool_names(),
+                allow_policy_override=True,
+            )
+            if direct_skill_call is None:
+                return None
+            self._record_trace_step(
+                kind="policy_gate",
+                title="RL Policy Gate",
+                content="Applied direct_tool gate before the main loop.",
+                metadata={
+                    "action": suggestion.action.value,
+                    "confidence": suggestion.confidence,
+                },
+            )
+            return DirectSkillCall(
+                tool_name=direct_skill_call.tool_name,
+                tool_input=direct_skill_call.tool_input,
+                reason="rl_policy_gate",
+                matched_via=direct_skill_call.matched_via,
+            )
+
+        if suggestion.action is DecisionAction.BUILD_TOOL:
+            self._active_rl_gate_note = (
+                "[RL Decision Gate]\n"
+                "Policy suggests: prefer emitting a Tool Spec before extra tool exploration."
+            )
+        elif suggestion.action is DecisionAction.ASK_TEACHER:
+            self._active_rl_gate_note = (
+                "[RL Decision Gate]\n"
+                "Policy suggests: if the first Tool Spec is incomplete or the tool path stalls, ask the teacher early."
+            )
+        else:
+            return None
+
+        self._record_trace_step(
+            kind="policy_gate",
+            title="RL Policy Gate",
+            content=self._active_rl_gate_note,
+            metadata={
+                "action": suggestion.action.value,
+                "confidence": suggestion.confidence,
+            },
+        )
+        return None
+
+    def _compose_loop_brief(self, base_brief: str) -> str:
+        if not self._active_rl_gate_note:
+            return base_brief
+        if not base_brief.strip():
+            return self._active_rl_gate_note
+        return f"{base_brief}\n\n{self._active_rl_gate_note}"
 
     def _finalize_trace(
         self,
@@ -752,6 +829,7 @@ class CognitiveAgent:
             model_name=model_name,
         )
         self._active_trace = None
+        self._active_rl_gate_note = ""
         return payload
 
     def _refresh_system_prompt(
