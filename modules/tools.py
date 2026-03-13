@@ -234,15 +234,50 @@ class ToolBox:
     @staticmethod
     def _normalize_python_input(code: str) -> str:
         text = code.strip()
-        # Small models often emit single-line Action Input with escaped newlines.
-        # Decode only when the payload has no real newlines but clearly contains them.
-        if "\n" not in text and "\\n" in text:
-            text = text.replace("\\n", "\n")
-        if "\t" not in text and "\\t" in text:
-            text = text.replace("\\t", "\t")
+        # Small models often emit single-line Action Input with escaped control chars.
+        # Decode only outside quoted strings to avoid breaking literals like '\\n'.
+        if "\n" not in text and ("\\" in text):
+            text = ToolBox._decode_escaped_controls_outside_strings(text)
         # Remove stray role leakage that should never be part of runnable code.
         text = re.split(r"\n(?:assistant:|user:|Action:)", text, maxsplit=1)[0]
         return text.strip()
+
+    @staticmethod
+    def _decode_escaped_controls_outside_strings(text: str) -> str:
+        out: list[str] = []
+        in_single = False
+        in_double = False
+        escape = False
+        i = 0
+        while i < len(text):
+            ch = text[i]
+            if escape:
+                out.append(ch)
+                escape = False
+                i += 1
+                continue
+            if ch == "\\":
+                if i + 1 < len(text):
+                    nxt = text[i + 1]
+                    if not in_single and not in_double and nxt == "n":
+                        out.append("\n")
+                        i += 2
+                        continue
+                    if not in_single and not in_double and nxt == "t":
+                        out.append("\t")
+                        i += 2
+                        continue
+                out.append(ch)
+                escape = True
+                i += 1
+                continue
+            if ch == "'" and not in_double:
+                in_single = not in_single
+            elif ch == '"' and not in_single:
+                in_double = not in_double
+            out.append(ch)
+            i += 1
+        return "".join(out)
 
     def _resolve_project_root(self, raw_input: str) -> Path | None:
         cleaned = raw_input.strip().strip("'").strip('"')

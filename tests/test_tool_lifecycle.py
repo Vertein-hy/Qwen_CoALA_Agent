@@ -54,6 +54,30 @@ def test_tool_discovery_prefers_matching_contract() -> None:
     assert results[0].breakdown.total_score > 0
 
 
+def test_tool_discovery_supports_cjk_overlap_tokens() -> None:
+    context = ProjectToolContext(
+        project_id="proj-http",
+        task_summary="请提取当前项目中的 HTTP API 路由并输出 markdown 摘要",
+        available_inputs=("user_request", "memory_context"),
+        desired_outputs=("final_answer",),
+        environment_facts=("python_available", "local_toolbox_available"),
+    )
+    spec = ToolSpec(
+        name="extract_http_routes",
+        purpose="提取当前项目中的 HTTP API 路由并输出 Markdown 摘要。",
+        inputs=(ToolIOField(name="repo_path", type_name="string", required=False),),
+        outputs=(ToolIOField(name="markdown_summary", type_name="string"),),
+        tags=("http", "api", "route", "markdown", "deterministic_builtin"),
+    )
+    engine = ToolDiscoveryEngine(knowledge_base=ToolKnowledgeBase(specs=[spec]))
+
+    results = engine.recommend(context, top_k=1)
+
+    assert len(results) == 1
+    assert results[0].spec.name == "extract_http_routes"
+    assert results[0].breakdown.goal_match >= 3.0
+
+
 def test_tool_builder_requires_contract_fields() -> None:
     planner = ToolBuilderPlanner()
     readiness = planner.assess_readiness(

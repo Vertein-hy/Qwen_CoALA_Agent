@@ -64,6 +64,14 @@ def test_python_repl_decodes_escaped_newlines() -> None:
     assert output == "ok"
 
 
+def test_python_repl_keeps_escaped_newline_inside_string_literal() -> None:
+    tools = ToolBox(data_dir="tests_runtime/tools_case")
+
+    output = tools.python_repl(r"print('\n'.join(['a', 'b']))")
+
+    assert output == "a\nb"
+
+
 def test_extract_http_routes_returns_markdown_summary(tmp_path: Path) -> None:
     app_file = tmp_path / "app.py"
     app_file.write_text(

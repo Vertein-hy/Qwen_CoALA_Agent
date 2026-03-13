@@ -9,6 +9,23 @@
 
 ## 2026-03-13
 
+### `2026-03-13T10:58:00+08:00` `fix: improve cjk tool matching and safer python repl escaping`
+
+更新了什么
+- 修复 `python_repl` 对转义换行的处理：现在只在字符串字面量之外解码 `\\n`、`\\t`，避免把 `print('\n'.join(...))` 这类合法代码改坏。
+- 提升工具发现的中文/CJK token 粒度，支持对“提取 HTTP API 路由”“markdown 摘要”这类任务做更稳定的语义匹配。
+- 为 `extract_http_routes` 增加中文任务匹配回归测试，确保该任务能进入高置信自动路由。
+- 全量测试结果：`pytest -q` -> `57 passed in 1.21s`
+
+对应文档
+- `docs/UPDATE_LOG.md`
+
+对应代码位置
+- `modules/tools.py`
+- `skills/tool_discovery.py`
+- `tests/test_tools.py`
+- `tests/test_tool_lifecycle.py`
+
 ### `2026-03-13T10:41:53+08:00` `feat: add deterministic http route extraction tool`
 
 更新了什么

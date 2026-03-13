@@ -21,7 +21,8 @@ class ToolDiscoveryEngine:
     knowledge_base: ToolKnowledgeBase
     min_score: float = 1.0
 
-    _TOKEN_PATTERN = re.compile(r"[a-z0-9_\-\u4e00-\u9fff]+", re.IGNORECASE)
+    _LATIN_TOKEN_PATTERN = re.compile(r"[a-z0-9_\-]+", re.IGNORECASE)
+    _CJK_SEQ_PATTERN = re.compile(r"[\u4e00-\u9fff]{2,}")
 
     def recommend(
         self,
@@ -104,8 +105,18 @@ class ToolDiscoveryEngine:
         return penalty
 
     def _tokenize(self, text: str) -> set[str]:
-        return {
+        tokens = {
             token.lower()
-            for token in self._TOKEN_PATTERN.findall(text)
+            for token in self._LATIN_TOKEN_PATTERN.findall(text)
             if token.strip()
         }
+        for seq in self._CJK_SEQ_PATTERN.findall(text):
+            normalized = seq.strip()
+            if len(normalized) < 2:
+                continue
+            tokens.add(normalized)
+            max_n = min(4, len(normalized))
+            for n in range(2, max_n + 1):
+                for i in range(len(normalized) - n + 1):
+                    tokens.add(normalized[i : i + n])
+        return tokens
