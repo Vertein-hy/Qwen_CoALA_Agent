@@ -54,3 +54,11 @@ def test_read_file_accepts_pipe_suffix_and_project_relative_path(tmp_path: Path)
         os.chdir(current)
 
     assert "print('hello')" in output
+
+
+def test_python_repl_decodes_escaped_newlines() -> None:
+    tools = ToolBox(data_dir="tests_runtime/tools_case")
+
+    output = tools.python_repl("import os;\\nprint('ok')")
+
+    assert output == "ok"

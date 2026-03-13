@@ -10,6 +10,7 @@ from __future__ import annotations
 import contextlib
 import inspect
 import io
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -128,7 +129,7 @@ class ToolBox:
         return self.registry.has(tool_name)
 
     def python_repl(self, code: str) -> str:
-        cleaned = self._strip_code_fence(code)
+        cleaned = self._normalize_python_input(self._strip_code_fence(code))
         output_buffer = io.StringIO()
         try:
             with contextlib.redirect_stdout(output_buffer):
@@ -180,4 +181,17 @@ class ToolBox:
             or (text.startswith('"""') and text.endswith('"""'))
         ):
             text = text[3:-3]
+        return text.strip()
+
+    @staticmethod
+    def _normalize_python_input(code: str) -> str:
+        text = code.strip()
+        # Small models often emit single-line Action Input with escaped newlines.
+        # Decode only when the payload has no real newlines but clearly contains them.
+        if "\n" not in text and "\\n" in text:
+            text = text.replace("\\n", "\n")
+        if "\t" not in text and "\\t" in text:
+            text = text.replace("\\t", "\t")
+        # Remove stray role leakage that should never be part of runnable code.
+        text = re.split(r"\n(?:assistant:|user:|Action:)", text, maxsplit=1)[0]
         return text.strip()

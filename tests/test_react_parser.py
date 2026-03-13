@@ -25,3 +25,18 @@ def test_parse_action_stops_before_final_answer():
     assert action is not None
     assert action.tool_name == "python_repl"
     assert action.tool_input == "print('ok')"
+
+
+def test_parse_action_stops_before_role_leakage():
+    text = (
+        "Thought: inspect files\n"
+        "Action: read_file\n"
+        "Action Input: main.py\n"
+        "assistant: Thought: keep reading\n"
+        "Action: read_file\n"
+        "Action Input: core/agent.py\n"
+    )
+    action = ReActParser.parse_action(text)
+    assert action is not None
+    assert action.tool_name == "read_file"
+    assert action.tool_input == "main.py"

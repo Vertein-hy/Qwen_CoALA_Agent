@@ -7,6 +7,25 @@
 
 ## 2026-03-12
 
+## 2026-03-13
+
+### `2026-03-13T10:20:33+08:00` `fix: sanitize leaked react inputs for small-model tool calls`
+
+更新了什么
+- `python_repl` 现在会把小模型常见的单行 `\\n`、`\\t` 转义代码还原为真实换行和缩进，避免 `unexpected character after line continuation character`。
+- `ReActParser` 在 `Action Input` 中遇到 `assistant:`、`user:`、新一轮 `Action:` 时会立即截断，防止把整段历史污染进工具输入。
+- 新增解析器和工具回归测试，覆盖角色泄漏和转义换行两类小模型常见脏输出。
+- 全量测试结果：`pytest -q` -> `53 passed in 1.59s`
+
+对应文档
+- `docs/UPDATE_LOG.md`
+
+对应代码位置
+- `core/react_parser.py`
+- `modules/tools.py`
+- `tests/test_react_parser.py`
+- `tests/test_tools.py`
+
 ### `2026-03-12T17:36:43+08:00` `fix: tolerate model style read_file inputs and rebuild web console page`
 
 更新了什么
