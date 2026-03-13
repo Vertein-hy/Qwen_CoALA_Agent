@@ -58,6 +58,8 @@ class SkillRouter:
     _FLOAT_TYPES = {"float", "double"}
     _TOP_MATCH_MIN_SCORE = 2.0
     _TOP_MATCH_MARGIN = 0.75
+    _AUTO_ROUTE_MIN_SCORE = 4.5
+    _AUTO_ROUTE_TAGS = {"deterministic_builtin"}
 
     @classmethod
     def infer_direct_skill_call(
@@ -68,7 +70,7 @@ class SkillRouter:
         executable_tool_names: set[str],
     ) -> DirectSkillCall | None:
         normalized = user_input.strip().lower()
-        if not normalized or not any(hint in normalized for hint in cls._DIRECT_HINTS):
+        if not normalized:
             return None
 
         executable_matches = [
@@ -85,6 +87,14 @@ class SkillRouter:
             if margin < cls._TOP_MATCH_MARGIN:
                 return None
 
+        has_direct_hint = any(hint in normalized for hint in cls._DIRECT_HINTS)
+        has_auto_route_tag = bool(cls._AUTO_ROUTE_TAGS & set(top_match.spec.tags))
+        if not has_direct_hint:
+            if not has_auto_route_tag:
+                return None
+            if top_match.breakdown.total_score < cls._AUTO_ROUTE_MIN_SCORE:
+                return None
+
         bound_input = cls._bind_tool_input(user_input=user_input, spec=top_match.spec)
         if bound_input is None:
             return None
@@ -92,7 +102,7 @@ class SkillRouter:
         return DirectSkillCall(
             tool_name=top_match.spec.name,
             tool_input=bound_input,
-            reason="tool_spec_direct_route",
+            reason="tool_spec_direct_route" if has_direct_hint else "deterministic_builtin_auto_route",
             matched_via=top_match.rationale,
         )
 

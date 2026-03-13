@@ -80,6 +80,28 @@ class ToolLifecycleRuntime:
     def build_tool_knowledge_base(self) -> ToolKnowledgeBase:
         specs: list[ToolSpec] = []
         seen: set[str] = set()
+        builtin_specs = (
+            ToolSpec(
+                name="extract_http_routes",
+                purpose="提取当前项目中的 HTTP API 路由并输出 Markdown 摘要。",
+                inputs=(
+                    ToolIOField(
+                        name="repo_path",
+                        type_name="string",
+                        required=False,
+                        description="Project root path, default to current workspace.",
+                    ),
+                ),
+                outputs=(
+                    ToolIOField(name="markdown_summary", type_name="string"),
+                ),
+                examples=("extract routes from current project",),
+                tags=("http", "api", "route", "markdown", "deterministic_builtin"),
+            ),
+        )
+        for spec in builtin_specs:
+            specs.append(spec)
+            seen.add(spec.name)
         runtime_skills = SkillPluginLoader(
             skills_file=self.skill_manager.skill_file,
             index_file=self.skill_manager.index_file,

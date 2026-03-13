@@ -9,6 +9,25 @@
 
 ## 2026-03-13
 
+### `2026-03-13T10:41:53+08:00` `feat: add deterministic http route extraction tool`
+
+更新了什么
+- 新增内置工具 `extract_http_routes`，用于扫描当前项目中的 Python Web 路由并输出 Markdown 摘要。
+- 将该工具注册到工具知识库，并标记为 `deterministic_builtin`，让它可以被高置信自动路由。
+- 当用户任务明显是在“提取 HTTP API 路由”时，Agent 会优先走货架式内置工具，而不是让小模型临时写 `python_repl`。
+- 新增内置工具测试和 Agent 直达路由测试。
+- 全量测试结果：`pytest -q` -> `55 passed in 1.14s`
+
+对应文档
+- `docs/UPDATE_LOG.md`
+
+对应代码位置
+- `modules/tools.py`
+- `core/tool_lifecycle_runtime.py`
+- `core/skill_routing.py`
+- `tests/test_tools.py`
+- `tests/test_agent_trace.py`
+
 ### `2026-03-13T10:20:33+08:00` `fix: sanitize leaked react inputs for small-model tool calls`
 
 更新了什么

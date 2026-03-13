@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import importlib.util
+import os
+from pathlib import Path
 import sys
 import types
 
@@ -35,6 +37,7 @@ if importlib.util.find_spec("chromadb") is None:
 from config.settings import AgentConfig, AppConfig, SkillConfig
 from core.agent import CognitiveAgent
 from core.contracts import ChatResult
+from modules.tools import ToolBox
 from skills.manager import SkillManager
 from skills.tool_registry import ToolRegistry
 
@@ -549,3 +552,50 @@ def calc_sum_n(n):
     assert "action" in step_kinds
     assert "observation" in step_kinds
     assert "final" in step_kinds
+
+
+def test_http_route_request_uses_deterministic_builtin_tool(tmp_path: Path) -> None:
+    project_file = tmp_path / "api_app.py"
+    project_file.write_text(
+        "\n".join(
+            [
+                "from flask import Flask",
+                "app = Flask(__name__)",
+                "",
+                "@app.get('/health')",
+                "def health():",
+                "    return {'status': 'ok'}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    skill_manager = SkillManager(
+        skill_file=tmp_path / "custom_skills.py",
+        index_file=tmp_path / "index.json",
+    )
+    tools = ToolBox(
+        data_dir=str(tmp_path / "data"),
+        skills_file=str(tmp_path / "custom_skills.py"),
+    )
+    memory = FakeMemory()
+    agent = _build_agent(
+        llm=FinalAnswerLLM(),
+        memory=memory,
+        skill_manager=skill_manager,
+        tools=tools,  # type: ignore[arg-type]
+    )
+
+    current = Path.cwd()
+    try:
+        os.chdir(tmp_path)
+        trace = agent.run_with_trace("请从当前项目代码中提取所有 HTTP API 路由，并输出 markdown 摘要。")
+    finally:
+        os.chdir(current)
+
+    assert trace["route"] == "deterministic_skill_router"
+    assert "# HTTP API Routes" in str(trace["reply"])
+    assert "| GET | /health | health | api_app.py |" in str(trace["reply"])
+    step_kinds = [item["kind"] for item in trace["steps"]]
+    assert "direct_route" in step_kinds
+    assert "action" in step_kinds
+    assert "observation" in step_kinds

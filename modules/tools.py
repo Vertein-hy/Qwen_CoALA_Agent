@@ -58,6 +58,7 @@ class ToolBox:
         self.registry.register("python_repl", self.python_repl)
         self.registry.register("write_file", self.write_file)
         self.registry.register("read_file", self.read_file)
+        self.registry.register("extract_http_routes", self.extract_http_routes)
 
     def load_internalized_skills(self) -> None:
         """Load callables from skills/internalized/custom_skills.py.
@@ -98,6 +99,7 @@ class ToolBox:
             "1. python_repl: execute Python code safely in session state.",
             "2. write_file: write a file, format is 'filename|content'.",
             "3. read_file: read a file by relative path; if input contains '|', only the filename part is used.",
+            "4. extract_http_routes: scan a project path and return a Markdown summary of HTTP routes.",
         ]
 
         custom_lines = []
@@ -169,6 +171,52 @@ class ToolBox:
                 return target.read_text(encoding="utf-8")
         return "File does not exist."
 
+    def extract_http_routes(self, raw_input: str) -> str:
+        project_root = self._resolve_project_root(raw_input)
+        if project_root is None:
+            return "Project path does not exist."
+
+        route_rows: list[dict[str, str]] = []
+        for py_file in sorted(project_root.rglob("*.py")):
+            if any(part.startswith(".") for part in py_file.parts):
+                continue
+            if "__pycache__" in py_file.parts:
+                continue
+            try:
+                content = py_file.read_text(encoding="utf-8")
+            except Exception as exc:  # noqa: BLE001
+                route_rows.append(
+                    {
+                        "file": str(py_file.relative_to(project_root)),
+                        "method": "ERROR",
+                        "path": "",
+                        "handler": f"read_failed: {exc}",
+                    }
+                )
+                continue
+            route_rows.extend(self._extract_routes_from_source(content, py_file, project_root))
+
+        if not route_rows:
+            return "No HTTP API routes found."
+
+        route_rows = [row for row in route_rows if row["method"] != "ERROR"]
+        if not route_rows:
+            return "No HTTP API routes found."
+
+        lines = [
+            "# HTTP API Routes",
+            "",
+            "| Method | Path | Handler | File |",
+            "|---|---|---|---|",
+        ]
+        for row in route_rows:
+            lines.append(
+                f"| {row['method']} | {row['path']} | {row['handler']} | {row['file']} |"
+            )
+        lines.append("")
+        lines.append(f"Total routes: {len(route_rows)}")
+        return "\n".join(lines)
+
     @staticmethod
     def _strip_code_fence(code: str) -> str:
         text = code.strip()
@@ -195,3 +243,77 @@ class ToolBox:
         # Remove stray role leakage that should never be part of runnable code.
         text = re.split(r"\n(?:assistant:|user:|Action:)", text, maxsplit=1)[0]
         return text.strip()
+
+    def _resolve_project_root(self, raw_input: str) -> Path | None:
+        cleaned = raw_input.strip().strip("'").strip('"')
+        if not cleaned:
+            cleaned = "."
+        candidate = Path(cleaned)
+        search_order = []
+        if candidate.is_absolute():
+            search_order.append(candidate)
+        else:
+            search_order.append(Path.cwd() / candidate)
+            search_order.append(self.data_dir / candidate)
+        for target in search_order:
+            if target.exists() and target.is_dir():
+                return target
+        return None
+
+    @staticmethod
+    def _extract_routes_from_source(content: str, py_file: Path, project_root: Path) -> list[dict[str, str]]:
+        relative_path = str(py_file.relative_to(project_root))
+        rows: list[dict[str, str]] = []
+        patterns = (
+            (
+                re.compile(
+                    r"@(?:app|router|bp|blueprint)\.(get|post|put|delete|patch|options|head)\(\s*[\"']([^\"']+)[\"']"
+                ),
+                None,
+            ),
+            (
+                re.compile(
+                    r"@(?:app|router|bp|blueprint)\.route\(\s*[\"']([^\"']+)[\"']\s*,\s*methods\s*=\s*\[([^\]]+)\]"
+                ),
+                "methods_list",
+            ),
+        )
+
+        lines = content.splitlines()
+        for index, line in enumerate(lines):
+            stripped = line.strip()
+            for pattern, mode in patterns:
+                match = pattern.search(stripped)
+                if not match:
+                    continue
+                handler = ToolBox._infer_next_function_name(lines, index)
+                if mode == "methods_list":
+                    path = match.group(1)
+                    methods = re.findall(r"[\"']([A-Za-z]+)[\"']", match.group(2))
+                    for method in methods or ["GET"]:
+                        rows.append(
+                            {
+                                "file": relative_path,
+                                "method": method.upper(),
+                                "path": path,
+                                "handler": handler,
+                            }
+                        )
+                else:
+                    rows.append(
+                        {
+                            "file": relative_path,
+                            "method": match.group(1).upper(),
+                            "path": match.group(2),
+                            "handler": handler,
+                        }
+                    )
+        return rows
+
+    @staticmethod
+    def _infer_next_function_name(lines: list[str], start_index: int) -> str:
+        for candidate in lines[start_index + 1 : start_index + 6]:
+            match = re.match(r"\s*def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", candidate)
+            if match:
+                return match.group(1)
+        return "(unknown)"
