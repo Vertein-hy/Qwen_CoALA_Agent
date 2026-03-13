@@ -9,6 +9,25 @@
 
 ## 2026-03-13
 
+### `2026-03-13T11:06:40+08:00` `feat: add skill workbench before internalization`
+
+更新了什么
+- 新增 `SkillWorkbench`，在工具晋升为正式 skill 之前，先执行独立编译、函数存在性检查和签名校验。
+- `global` 级工具现在不会直接写入 `skills/internalized/`，而是先通过 workbench 验证其函数名和 `ToolSpec` 必需输入是否一致。
+- 保持和当前 Windows 环境兼容：workbench 不依赖系统临时目录写文件，而是在独立 namespace 中完成逻辑隔离校验。
+- 新增 workbench 单测，并验证现有 global promotion 内化链路仍然可用。
+- 全量测试结果：`pytest -q` -> `60 passed in 1.36s`
+
+对应文档
+- `docs/UPDATE_LOG.md`
+
+对应代码位置
+- `skills/workbench.py`
+- `skills/contracts.py`
+- `core/tool_lifecycle_runtime.py`
+- `tests/test_skill_workbench.py`
+- `tests/test_agent_trace.py`
+
 ### `2026-03-13T10:58:00+08:00` `fix: improve cjk tool matching and safer python repl escaping`
 
 更新了什么

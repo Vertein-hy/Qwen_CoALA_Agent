@@ -33,6 +33,7 @@ from skills.tool_escalation import TeacherEscalationPlanner
 from skills.tool_parser import ToolLifecycleParser
 from skills.tool_promotion import ToolPromotionPolicy
 from skills.tool_registry import ToolRegistry
+from skills.workbench import SkillWorkbench
 
 
 class ToolLifecycleRuntime:
@@ -60,6 +61,7 @@ class ToolLifecycleRuntime:
         self.tool_promotion = tool_promotion
         self.tool_builder = tool_builder
         self.teacher_escalation = teacher_escalation
+        self.skill_workbench = SkillWorkbench(self.skill_manager.validator)
 
     def build_project_tool_context(self, user_input: str) -> ProjectToolContext:
         project_id = self.config.agent.project_id.strip() or Path.cwd().name or "active-session"
@@ -377,10 +379,24 @@ class ToolLifecycleRuntime:
         record = self.tool_registry.get_record(tool_name)
         if record is None or not record.implementation_code.strip():
             return
+        workbench_result = self.skill_workbench.evaluate(
+            function_code=record.implementation_code,
+            spec=record.spec,
+        )
+        if not workbench_result.is_valid:
+            self.skill_event_logger.log(
+                "tool_internalize_failed",
+                trace_id,
+                {
+                    "tool_name": tool_name,
+                    "reason": "; ".join(workbench_result.errors)[:200],
+                },
+            )
+            return
         try:
             skill_name = self.skill_manager.append_skill(
                 source=record.source or record.spec.purpose,
-                function_code=record.implementation_code,
+                function_code=workbench_result.normalized_code,
             )
         except ValueError as exc:
             self.skill_event_logger.log(

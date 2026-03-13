@@ -25,3 +25,14 @@ class SkillRecord:
     created_at: str
     checksum: str
     enabled: bool = True
+
+
+@dataclass(frozen=True)
+class SkillWorkbenchResult:
+    """Outcome of evaluating generated skill code inside an isolated workbench."""
+
+    is_valid: bool
+    function_name: str | None = None
+    normalized_code: str = ""
+    errors: tuple[str, ...] = field(default_factory=tuple)
+    warnings: tuple[str, ...] = field(default_factory=tuple)
